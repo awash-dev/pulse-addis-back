@@ -1,27 +1,54 @@
-const prisma = require("../configure/prismaClient");
+const db = require("../configure/dbClient");
 const asyncHandler = require("express-async-handler");
 const { generateToken } = require("../utils/createToken");
 const { generateRefreshToken } = require("../utils/refreshtoken");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const sendEmail = require("../utils/sendEmail");
 const { validationResult } = require("express-validator");
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
+const USER_PUBLIC_FIELDS = `
+  id,
+  firstname,
+  lastname,
+  username,
+  email,
+  mobile,
+  role,
+  "isActive" AS "isActive",
+  "isBlocked" AS "isBlocked",
+  "isEmailVerified" AS "isEmailVerified",
+  address,
+  "profilePictures" AS "profilePictures",
+  "createdAt" AS "createdAt",
+  "updatedAt" AS "updatedAt"
+`;
+
+const USER_PUBLIC_SELECT = `
+  SELECT
+    ${USER_PUBLIC_FIELDS}
+  FROM "User"
+`;
+
+const mapPublicUser = (user) => ({
+  ...user,
+  _id: user.id,
+});
 
 // ─── Admin creates user (no password from them) ───────────────────────────
 const createUser = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, role, mobile } = req.body;
-  const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+  const existingUser = await db.user.findUnique({ where: { email: email.toLowerCase().trim() } });
   if (existingUser) throw new Error("User already exists with this email.");
 
   const otpPassword = generateOTP();
   const hashedPassword = await bcrypt.hash(otpPassword, 10);
 
-  const newUser = await prisma.user.create({
+  const newUser = await db.user.create({
     data: {
       firstname, lastname,
       email: email.toLowerCase().trim(),
@@ -49,7 +76,7 @@ const createUser = asyncHandler(async (req, res) => {
 // ─── Client self-registration ──────────────────────────────────────────────
 const createAppUser = asyncHandler(async (req, res) => {
   const { firstname, lastname, email, password, mobile, role } = req.body;
-  const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+  const existing = await db.user.findUnique({ where: { email: email.toLowerCase().trim() } });
   if (existing) throw new Error("User already exists with this email.");
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -57,7 +84,7 @@ const createAppUser = asyncHandler(async (req, res) => {
   const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
   const expires = new Date(Date.now() + 10 * 60 * 1000);
 
-  const newUser = await prisma.user.create({
+  const newUser = await db.user.create({
     data: {
       firstname, lastname,
       email: email.toLowerCase().trim(),
@@ -84,7 +111,7 @@ const createAppUser = asyncHandler(async (req, res) => {
 // ─── Verify Email ──────────────────────────────────────────────────────────
 const verifyEmail = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email } });
   if (!user) return res.status(400).json({ message: "User not found" });
   if (user.emailVerificationExpires && user.emailVerificationExpires < new Date()) {
     return res.status(400).json({ message: "OTP has expired" });
@@ -93,7 +120,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
   if (hashedOTP !== user.emailVerificationOTP) {
     return res.status(400).json({ message: "Incorrect OTP" });
   }
-  await prisma.user.update({
+  await db.user.update({
     where: { email },
     data: { isEmailVerified: true, emailVerificationOTP: null, emailVerificationExpires: null }
   });
@@ -103,7 +130,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
 // ─── Forgot password ───────────────────────────────────────────────────────
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email } });
   if (!user) return res.status(404).json({ message: "User not found" });
 
   const otpPassword = generateOTP();
@@ -111,7 +138,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const token = generateToken(user.id);
   const resetUrl = `${process.env.base_url}reset-password?token=${token}`;
 
-  await prisma.user.update({ where: { email }, data: { password: hashedPassword } });
+  await db.user.update({ where: { email }, data: { password: hashedPassword } });
 
   const message = `Reset link: ${resetUrl}\nTemporary password: ${otpPassword}`;
   try {
@@ -125,7 +152,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
 // ─── Verify OTP ────────────────────────────────────────────────────────────
 const verifyOTP = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email } });
   if (!user) return res.status(404).json({ message: "User not found" });
   const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
   if (user.passwordResetOTP !== hashedOTP || (user.passwordResetExpires && Date.now() > user.passwordResetExpires)) {
@@ -137,11 +164,11 @@ const verifyOTP = asyncHandler(async (req, res) => {
 // ─── Reset Password ────────────────────────────────────────────────────────
 const resetPassword = asyncHandler(async (req, res) => {
   const { email, newPassword } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email } });
   if (!user) return res.status(404).json({ message: "User not found" });
   if (!newPassword) return res.status(400).json({ message: "New password is required" });
   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({
+  await db.user.update({
     where: { email },
     data: { password: hashedPassword, passwordResetOTP: null, passwordResetExpires: null }
   });
@@ -155,7 +182,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Please provide email and password");
   }
-  const findUser = await prisma.user.findUnique({ where: { email } });
+  const findUser = await db.user.findUnique({ where: { email } });
   if (!findUser) {
     res.status(401);
     throw new Error("Invalid Credentials");
@@ -170,7 +197,7 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
   }
 
   const refreshToken = await generateRefreshToken(findUser.id);
-  await prisma.user.update({ where: { id: findUser.id }, data: { refreshToken } });
+  await db.user.update({ where: { id: findUser.id }, data: { refreshToken } });
   res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: 72 * 60 * 60 * 1000 });
 
   res.json({
@@ -189,12 +216,25 @@ const loginUserCtrl = asyncHandler(async (req, res) => {
 // ─── Refresh Token ─────────────────────────────────────────────────────────
 const handleRefreshToken = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
-  if (!cookie?.refreshToken) throw new Error("No Refresh Token in Cookies");
+  if (!cookie?.refreshToken) {
+    return res.status(401).json({ message: "No Refresh Token in Cookies" });
+  }
   const refreshToken = cookie.refreshToken;
-  const user = await prisma.user.findFirst({ where: { refreshToken } });
-  if (!user) throw new Error("No Refresh token in DB or not matched");
+  const { rows } = await db.query(
+    `SELECT id, "refreshToken" AS "refreshToken"
+     FROM "User"
+     WHERE "refreshToken" = $1
+     LIMIT 1`,
+    [refreshToken],
+  );
+  const user = rows[0];
+  if (!user) {
+    return res.status(401).json({ message: "No Refresh token in DB or not matched" });
+  }
   jwt.verify(refreshToken, process.env.JWT_SECRET, (err, decoded) => {
-    if (err || user.id !== decoded.id) throw new Error("Refresh token issue");
+    if (err || user.id !== decoded.id) {
+      return res.status(401).json({ message: "Refresh token issue" });
+    }
     const accessToken = generateToken(user.id);
     res.json({ accessToken });
   });
@@ -203,11 +243,20 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
 // ─── Logout ────────────────────────────────────────────────────────────────
 const logout = asyncHandler(async (req, res) => {
   const cookie = req.cookies;
-  if (!cookie?.refreshToken) throw new Error("No Refresh Token in Cookies");
+  if (!cookie?.refreshToken) {
+    res.clearCookie("refreshToken", { httpOnly: true, secure: true });
+    return res.sendStatus(204);
+  }
   const refreshToken = cookie.refreshToken;
-  const user = await prisma.user.findFirst({ where: { refreshToken } });
-  if (user) {
-    await prisma.user.update({ where: { id: user.id }, data: { refreshToken: "" } });
+  const { rows } = await db.query(
+    `SELECT id FROM "User" WHERE "refreshToken" = $1 LIMIT 1`,
+    [refreshToken],
+  );
+  if (rows[0]) {
+    await db.query(
+      `UPDATE "User" SET "refreshToken" = '' WHERE id = $1`,
+      [rows[0].id],
+    );
   }
   res.clearCookie("refreshToken", { httpOnly: true, secure: true });
   res.sendStatus(204);
@@ -217,85 +266,130 @@ const logout = asyncHandler(async (req, res) => {
 const updatedUser = asyncHandler(async (req, res) => {
   const userId = req.params.id || req.user?.id;
   const profileInfo = req.body.profileInfo || req.body;
-  const data = {};
-  if (profileInfo.firstname) data.firstname = profileInfo.firstname;
-  if (profileInfo.lastname) data.lastname = profileInfo.lastname;
-  if (profileInfo.mobile) data.mobile = profileInfo.mobile;
-  if (profileInfo.address) data.address = profileInfo.address;
-  if (profileInfo.profilePictures) data.profilePictures = profileInfo.profilePictures;
+  const values = [userId];
+  const updates = [];
 
-  const user = await prisma.user.update({ where: { id: userId }, data });
-  res.status(200).json({ message: "Profile updated successfully", user });
+  if (profileInfo.firstname !== undefined) {
+    values.push(profileInfo.firstname);
+    updates.push(`firstname = $${values.length}`);
+  }
+  if (profileInfo.lastname !== undefined) {
+    values.push(profileInfo.lastname);
+    updates.push(`lastname = $${values.length}`);
+  }
+  if (profileInfo.mobile !== undefined) {
+    values.push(profileInfo.mobile);
+    updates.push(`mobile = $${values.length}`);
+  }
+  if (profileInfo.address !== undefined) {
+    values.push(profileInfo.address);
+    updates.push(`address = $${values.length}`);
+  }
+  if (profileInfo.profilePictures !== undefined) {
+    values.push(profileInfo.profilePictures);
+    updates.push(`"profilePictures" = $${values.length}`);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ message: "No profile fields provided" });
+  }
+
+  values.push(new Date());
+  updates.push(`"updatedAt" = $${values.length}`);
+
+  const { rows } = await db.query(
+    `UPDATE "User"
+     SET ${updates.join(", ")}
+     WHERE id = $1
+     RETURNING ${USER_PUBLIC_FIELDS}`,
+    values,
+  );
+
+  res.status(200).json({
+    message: "Profile updated successfully",
+    user: mapPublicUser(rows[0]),
+  });
 });
 
 // ─── Save Address ──────────────────────────────────────────────────────────
 const saveAddress = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: { address: req.body.address }
-  });
-  res.json(updatedUser);
+  const { rows } = await db.query(
+    `UPDATE "User"
+     SET address = $2, "updatedAt" = NOW()
+     WHERE id = $1
+     RETURNING ${USER_PUBLIC_FIELDS}`,
+    [userId, req.body.address],
+  );
+  res.json(mapPublicUser(rows[0]));
 });
 
 // ─── Get All Users ─────────────────────────────────────────────────────────
 const getallUser = asyncHandler(async (req, res) => {
-  const users = await prisma.user.findMany({
-    select: {
-      id: true, firstname: true, lastname: true, email: true,
-      mobile: true, role: true, isBlocked: true, isEmailVerified: true,
-      createdAt: true, address: true
-    },
-    orderBy: { createdAt: "desc" }
-  });
-  const mapped = users.map(u => ({ ...u, _id: u.id }));
-  res.json(mapped);
+  const { rows } = await db.query(
+    `${USER_PUBLIC_SELECT}
+     ORDER BY "createdAt" DESC`,
+  );
+  res.json(rows.map(mapPublicUser));
 });
 
 // ─── Get Single User ───────────────────────────────────────────────────────
 const getaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true, firstname: true, lastname: true, email: true,
-      mobile: true, role: true, isBlocked: true, isEmailVerified: true,
-      address: true, profilePictures: true, createdAt: true
-    }
-  });
-  res.json({ getaUser: { ...user, _id: user?.id } });
+  const { rows } = await db.query(
+    `${USER_PUBLIC_SELECT}
+     WHERE id = $1
+     LIMIT 1`,
+    [id],
+  );
+  res.json({ getaUser: rows[0] ? mapPublicUser(rows[0]) : null });
 });
 
 // ─── Delete User ───────────────────────────────────────────────────────────
 const deleteaUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const deleted = await prisma.user.delete({ where: { id } });
+  const deleted = await db.user.delete({ where: { id } });
   res.json({ deleteaUser: deleted });
 });
 
 // ─── Block / Unblock ───────────────────────────────────────────────────────
 const blockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const blocked = await prisma.user.update({ where: { id }, data: { isBlocked: true } });
-  res.json(blocked);
+  const { rows } = await db.query(
+    `UPDATE "User"
+     SET "isBlocked" = true, "updatedAt" = NOW()
+     WHERE id = $1
+     RETURNING ${USER_PUBLIC_FIELDS}`,
+    [id],
+  );
+  res.json(mapPublicUser(rows[0]));
 });
 
 const unblockUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  await prisma.user.update({ where: { id }, data: { isBlocked: false } });
+  await db.query(
+    `UPDATE "User"
+     SET "isBlocked" = false, "updatedAt" = NOW()
+     WHERE id = $1`,
+    [id],
+  );
   res.json({ message: "User UnBlocked" });
 });
 
 // ─── Delivery Boys ─────────────────────────────────────────────────────────
 const getDeliveryBoys = asyncHandler(async (req, res) => {
-  const deliveryBoys = await prisma.user.findMany({ where: { role: "deliveryBoy" } });
-  res.status(200).json(deliveryBoys);
+  const { rows } = await db.query(
+    `${USER_PUBLIC_SELECT}
+     WHERE role = 'deliveryBoy'
+     ORDER BY firstname ASC, lastname ASC`,
+  );
+  res.status(200).json(rows.map(mapPublicUser));
 });
 
 const assignOrderToDeliveryBoy = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { deliveryBoyId } = req.body;
-  const order = await prisma.order.update({
+  const order = await db.order.update({
     where: { id: orderId },
     data: { assignedToId: deliveryBoyId, status: "assigned" }
   });
@@ -304,13 +398,13 @@ const assignOrderToDeliveryBoy = asyncHandler(async (req, res) => {
 
 const updateDeliveryBoy = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const updated = await prisma.user.update({ where: { id }, data: req.body });
+  const updated = await db.user.update({ where: { id }, data: req.body });
   res.status(200).json(updated);
 });
 
 const deleteDeliveryBoy = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  await prisma.user.delete({ where: { id } });
+  await db.user.delete({ where: { id } });
   res.status(204).json({ message: "Delivery boy deleted." });
 });
 
@@ -320,13 +414,19 @@ const updatePassword = asyncHandler(async (req, res) => {
   const { password } = req.body;
   if (!password) return res.json({ message: "No password provided" });
   const hashed = await bcrypt.hash(password, 10);
-  const user = await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
-  res.json(user);
+  const { rows } = await db.query(
+    `UPDATE "User"
+     SET password = $2, "updatedAt" = NOW()
+     WHERE id = $1
+     RETURNING ${USER_PUBLIC_FIELDS}`,
+    [userId, hashed],
+  );
+  res.json(mapPublicUser(rows[0]));
 });
 
 const forgotPasswordToken = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email } });
   if (!user) throw new Error("User not found with this email");
   const token = generateToken(user.id);
   const resetURL = `http://localhost:3001/reset-password/${token}`;
@@ -340,12 +440,12 @@ const changePassword = asyncHandler(async (req, res) => {
   const { token } = req.params;
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    const user = await db.user.findUnique({ where: { id: decoded.id } });
     if (!user) return res.status(404).json({ status: "fail", message: "User not found" });
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) return res.status(400).json({ status: "fail", message: "Current password is incorrect" });
     const hashed = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
+    await db.user.update({ where: { id: user.id }, data: { password: hashed } });
     res.status(200).json({ status: "success", message: "Password reset successfully" });
   } catch (err) {
     res.status(400).json({ status: "fail", message: "Invalid or expired token" });
@@ -355,31 +455,61 @@ const changePassword = asyncHandler(async (req, res) => {
 // ─── Wishlist ──────────────────────────────────────────────────────────────
 const getWishlist = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { wishlist: true }
-  });
-  res.json(user);
+  const { rows } = await db.query(
+    `SELECT
+       p.id,
+       p.title,
+       p.slug,
+       p.description,
+       p.price,
+       p."oldPrice" AS "oldPrice",
+       p.category,
+       p.subcategory,
+       p.brand,
+       p.quantity,
+       p.sold,
+       p."postedByUserId" AS "postedByUserId",
+       p."storeId" AS "storeId",
+       p.status,
+       p."rejectionReason" AS "rejectionReason",
+       p.images,
+       p.strength,
+       p."requiresPrescription" AS "requiresPrescription",
+       p."prescriptionPlans" AS "prescriptionPlans",
+       p.tags,
+       p.discount,
+       p."totalRating" AS "totalRating",
+       p."createdAt" AS "createdAt",
+       p."updatedAt" AS "updatedAt"
+     FROM "Wishlist" w
+     JOIN "Product" p ON p.id = w."productId"
+     WHERE w."userId" = $1
+     ORDER BY p."createdAt" DESC`,
+    [userId],
+  );
+  res.json(rows.map((product) => ({ ...product, _id: product.id })));
 });
 
 const addToWishlist = asyncHandler(async (req, res) => {
   const { productId } = req.body;
   const userId = req.user?.id;
   if (!productId) return res.status(400).json({ message: "productId is required" });
-  await prisma.user.update({
-    where: { id: userId },
-    data: { wishlist: { connect: { id: productId } } }
-  });
+  await db.query(
+    `INSERT INTO "Wishlist" ("userId", "productId")
+     VALUES ($1, $2)
+     ON CONFLICT ("userId", "productId") DO NOTHING`,
+    [userId, productId],
+  );
   res.status(201).json({ message: "Product added to wishlist successfully" });
 });
 
 const removeFromWishlist = asyncHandler(async (req, res) => {
   const { id: productId } = req.params;
   const userId = req.user?.id;
-  await prisma.user.update({
-    where: { id: userId },
-    data: { wishlist: { disconnect: { id: productId } } }
-  });
+  await db.query(
+    `DELETE FROM "Wishlist" WHERE "userId" = $1 AND "productId" = $2`,
+    [userId, productId],
+  );
   res.json({ message: "Product removed from wishlist successfully" });
 });
 
@@ -387,47 +517,94 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
 const userCart = asyncHandler(async (req, res) => {
   const { productId, color, quantity, price, selectedSize } = req.body;
   const userId = req.user?.id;
-  const newCart = await prisma.cart.create({
-    data: {
-      userId, productId,
-      selectedColor: color || "default",
-      selectedSize: selectedSize || "standard",
-      quantity: parseInt(quantity) || 1
-    }
-  });
-  res.json(newCart);
+  const { rows } = await db.query(
+    `INSERT INTO "Cart" ("userId", "productId", "selectedColor", "selectedSize", quantity)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING
+       id,
+       "userId" AS "userId",
+       "productId" AS "productId",
+       "selectedColor" AS "selectedColor",
+       "selectedSize" AS "selectedSize",
+       quantity,
+       "createdAt" AS "createdAt",
+       "updatedAt" AS "updatedAt"`,
+    [userId, productId, color || "default", selectedSize || "standard", Number.parseInt(quantity, 10) || 1],
+  );
+  res.json(rows[0]);
 });
 
 const getUserCart = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  const cart = await prisma.cart.findMany({
-    where: { userId },
-    include: { product: true }
-  });
-  res.json(cart);
+  const { rows } = await db.query(
+    `SELECT
+       c.id,
+       c."userId" AS "userId",
+       c."productId" AS "productId",
+       c.quantity,
+       c."selectedColor" AS "selectedColor",
+       c."selectedSize" AS "selectedSize",
+       c."createdAt" AS "createdAt",
+       c."updatedAt" AS "updatedAt",
+       json_build_object(
+         'id', p.id,
+         '_id', p.id,
+         'title', p.title,
+         'slug', p.slug,
+         'description', p.description,
+         'price', p.price,
+         'oldPrice', p."oldPrice",
+         'category', p.category,
+         'subcategory', p.subcategory,
+         'brand', p.brand,
+         'quantity', p.quantity,
+         'status', p.status,
+         'images', p.images
+       ) AS product
+     FROM "Cart" c
+     JOIN "Product" p ON p.id = c."productId"
+     WHERE c."userId" = $1
+     ORDER BY c."createdAt" DESC`,
+    [userId],
+  );
+  res.json(rows);
 });
 
 const removeProductFromCart = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
   const { cartItemId } = req.params;
-  await prisma.cart.deleteMany({ where: { id: cartItemId, userId } });
+  await db.query(
+    `DELETE FROM "Cart" WHERE id = $1 AND "userId" = $2`,
+    [cartItemId, userId],
+  );
   res.json({ message: "Item removed" });
 });
 
 const emptyCart = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  await prisma.cart.deleteMany({ where: { userId } });
+  await db.query(`DELETE FROM "Cart" WHERE "userId" = $1`, [userId]);
   res.json({ message: "Cart cleared" });
 });
 
 const updateProductQuantityFromCart = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
   const { cartItemId, newQuantity } = req.params;
-  const cartItem = await prisma.cart.update({
-    where: { id: cartItemId },
-    data: { quantity: parseInt(newQuantity) }
-  });
-  res.json(cartItem);
+  const { rows } = await db.query(
+    `UPDATE "Cart"
+     SET quantity = $3, "updatedAt" = NOW()
+     WHERE id = $1 AND "userId" = $2
+     RETURNING
+       id,
+       "userId" AS "userId",
+       "productId" AS "productId",
+       "selectedColor" AS "selectedColor",
+       "selectedSize" AS "selectedSize",
+       quantity,
+       "createdAt" AS "createdAt",
+       "updatedAt" AS "updatedAt"`,
+    [cartItemId, userId, Number.parseInt(newQuantity, 10)],
+  );
+  res.json(rows[0]);
 });
 
 // ─── Orders ────────────────────────────────────────────────────────────────
@@ -453,7 +630,7 @@ const createOrder = asyncHandler(async (req, res) => {
       }))
     : [];
 
-  const newOrder = await prisma.order.create({
+  const newOrder = await db.order.create({
     data: {
       userId, firstName: first_name, lastName: last_name,
       email: email || "", phone: phone_number,
@@ -475,7 +652,7 @@ const createOrder = asyncHandler(async (req, res) => {
 
 const getMyOrders = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  const orders = await prisma.order.findMany({
+  const orders = await db.order.findMany({
     where: { userId },
     include: { items: { include: { product: true } } },
     orderBy: { createdAt: "desc" }
@@ -484,7 +661,7 @@ const getMyOrders = asyncHandler(async (req, res) => {
 });
 
 const getAllOrders = asyncHandler(async (req, res) => {
-  const orders = await prisma.order.findMany({
+  const orders = await db.order.findMany({
     include: {
       user: { select: { id: true, firstname: true, lastname: true, email: true } },
       items: { include: { product: true } }
@@ -496,7 +673,7 @@ const getAllOrders = asyncHandler(async (req, res) => {
 
 const getsingleOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const order = await prisma.order.findUnique({
+  const order = await db.order.findUnique({
     where: { id },
     include: {
       user: true,
@@ -513,7 +690,7 @@ const updateOrder = asyncHandler(async (req, res) => {
   if (status) data.status = status;
   if (prescriptionStatus) data.prescriptionStatus = prescriptionStatus;
 
-  const updatedOrder = await prisma.order.update({
+  const updatedOrder = await db.order.update({
     where: { id: req.params.id },
     data,
     include: { assignedTo: { select: { firstname: true, lastname: true, email: true } } }
@@ -525,7 +702,7 @@ const updateOrder = asyncHandler(async (req, res) => {
 const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
   let endDate = new Date();
   endDate.setMonth(endDate.getMonth() - 11);
-  const data = await prisma.order.groupBy({
+  const data = await db.order.groupBy({
     by: ["month"],
     where: { createdAt: { lte: new Date(), gte: endDate } },
     _sum: { totalPriceAfterDiscount: true },
@@ -542,7 +719,7 @@ const getMonthWiseOrderIncome = asyncHandler(async (req, res) => {
 const getYearlyTotalOrder = asyncHandler(async (req, res) => {
   let endDate = new Date();
   endDate.setMonth(endDate.getMonth() - 11);
-  const data = await prisma.order.aggregate({
+  const data = await db.order.aggregate({
     where: { createdAt: { lte: new Date(), gte: endDate } },
     _sum: { totalPriceAfterDiscount: true },
     _count: { id: true }
@@ -553,17 +730,30 @@ const getYearlyTotalOrder = asyncHandler(async (req, res) => {
 const getUsersByRole = asyncHandler(async (req, res) => {
   const { role } = req.query;
   if (!role) return res.status(400).json({ message: "Role query parameter is required" });
-  const users = await prisma.user.findMany({ where: { role } });
-  res.status(200).json({ success: true, users });
+  const { rows } = await db.query(
+    `${USER_PUBLIC_SELECT}
+     WHERE role = $1
+     ORDER BY "createdAt" DESC`,
+    [role],
+  );
+  res.status(200).json({ success: true, users: rows.map(mapPublicUser) });
 });
 
 const getUserCount = asyncHandler(async (req, res) => {
-  const [merchant, admin, deliveryBoy, user] = await Promise.all([
-    prisma.user.count({ where: { role: "merchant" } }),
-    prisma.user.count({ where: { role: "admin" } }),
-    prisma.user.count({ where: { role: "deliveryBoy" } }),
-    prisma.user.count({ where: { role: "user" } })
-  ]);
+  const { rows } = await db.query(
+    `SELECT role, COUNT(*)::int AS count
+     FROM "User"
+     WHERE role IN ('merchant', 'admin', 'deliveryBoy', 'user')
+     GROUP BY role`,
+  );
+  const counts = rows.reduce((acc, row) => {
+    acc[row.role] = row.count;
+    return acc;
+  }, {});
+  const merchant = counts.merchant || 0;
+  const admin = counts.admin || 0;
+  const deliveryBoy = counts.deliveryBoy || 0;
+  const user = counts.user || 0;
   res.status(200).json({ success: true, data: { merchant, admin, deliveryBoy, user } });
 });
 

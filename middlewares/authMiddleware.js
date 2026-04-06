@@ -1,40 +1,70 @@
-const prisma = require("../configure/prismaClient");
+const db = require("../configure/dbClient");
 const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
 
-// Middleware to handle authentication
+const USER_SELECT = `
+  SELECT
+    id,
+    firstname,
+    lastname,
+    username,
+    email,
+    mobile,
+    password,
+    role,
+    "isActive" AS "isActive",
+    "isBlocked" AS "isBlocked",
+    "isEmailVerified" AS "isEmailVerified",
+    address,
+    "profilePictures" AS "profilePictures",
+    "emailVerificationOTP" AS "emailVerificationOTP",
+    "emailVerificationExpires" AS "emailVerificationExpires",
+    "passwordResetOTP" AS "passwordResetOTP",
+    "passwordResetExpires" AS "passwordResetExpires",
+    "refreshToken" AS "refreshToken",
+    "passwordChangedAt" AS "passwordChangedAt",
+    "passwordResetToken" AS "passwordResetToken",
+    "googleId" AS "googleId",
+    "facebookId" AS "facebookId",
+    provider,
+    "createdAt" AS "createdAt",
+    "updatedAt" AS "updatedAt"
+  FROM "User"
+`;
+
 const authMiddleware = asyncHandler(async (req, res, next) => {
-  let token;
-  if (req?.headers?.authorization?.startsWith("Bearer")) {
-    token = req.headers.authorization.split(" ")[1];
+  if (!req?.headers?.authorization?.startsWith("Bearer")) {
+    return res.status(401).json({ message: "No token provided in header." });
+  }
 
-    try {
-      if (token) {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        // Standardized to { id: "uuid" } or legacy { userId: "uuid" }
-        const user = await prisma.user.findUnique({ 
-          where: { id: decoded?.id || decoded?.userId } 
-        });
+  const token = req.headers.authorization.split(" ")[1];
 
-        if (!user) {
-          return res
-            .status(401)
-            .json({ message: "User session expired. Please login again." });
-        }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded?.id || decoded?.userId;
 
-        req.user = user;
-        next();
-      }
-    } catch (error) {
-      console.error("JWT Verification Error:", error.message);
+    if (!userId) {
+      return res.status(401).json({
+        message: "Not Authorized, token payload is invalid.",
+      });
+    }
+
+    const { rows } = await db.query(`${USER_SELECT} WHERE id = $1 LIMIT 1`, [userId]);
+    const user = rows[0];
+
+    if (!user) {
       return res
         .status(401)
-        .json({
-          message: "Not Authorized, token expired. Please login again.",
-        });
+        .json({ message: "User session expired. Please login again." });
     }
-  } else {
-    return res.status(401).json({ message: "No token provided in header." });
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error("JWT Verification Error:", error.message);
+    return res.status(401).json({
+      message: "Not Authorized, token expired. Please login again.",
+    });
   }
 });
 

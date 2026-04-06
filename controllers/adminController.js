@@ -1,11 +1,11 @@
-const prisma = require('../configure/prismaClient');
+const db = require('../configure/dbClient');
 const asyncHandler = require("express-async-handler");
 
 exports.assignDeliveryBoy = asyncHandler(async (req, res) => {
     try {
         const { orderId, deliveryBoyId } = req.body;
         
-        const updatedOrder = await prisma.order.update({
+        const updatedOrder = await db.order.update({
             where: { id: orderId },
             data: { 
                 assignedToId: deliveryBoyId,

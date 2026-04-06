@@ -1,15 +1,15 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 
 const createPromotion = async (req, res) => {
   try {
-    const newPromotion = await prisma.promotion.create({
+    const newPromotion = await db.promotion.create({
       data: {
         title: req.body.title || req.body.name || "Promotion",
         image: req.body.image || "",
         link: req.body.link || null
       }
     });
-    await prisma.activity.create({
+    await db.activity.create({
       data: { action: "create Promotion", userId: req.user?.id, details: { newPromotion } }
     });
     res.status(201).json(newPromotion);
@@ -26,7 +26,7 @@ const updatePromotion = async (req, res) => {
     if (req.body.image) data.image = req.body.image;
     if (req.body.link !== undefined) data.link = req.body.link;
 
-    const updatedPromotion = await prisma.promotion.update({ where: { id }, data });
+    const updatedPromotion = await db.promotion.update({ where: { id }, data });
     res.json(updatedPromotion);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -36,7 +36,7 @@ const updatePromotion = async (req, res) => {
 const getPromotionById = async (req, res) => {
   const { id } = req.params;
   try {
-    const promotion = await prisma.promotion.findUnique({ where: { id } });
+    const promotion = await db.promotion.findUnique({ where: { id } });
     if (!promotion) return res.status(404).json({ message: "Promotion not found" });
     res.json(promotion);
   } catch (error) {
@@ -46,7 +46,7 @@ const getPromotionById = async (req, res) => {
 
 const getAllPromotions = async (req, res) => {
   try {
-    const promotions = await prisma.promotion.findMany({
+    const promotions = await db.promotion.findMany({
       orderBy: { createdAt: "desc" }
     });
     res.json(promotions);
@@ -59,7 +59,7 @@ const deactivatePromotion = async (req, res) => {
   const { id } = req.params;
   try {
     // We don't have active field, so delete it
-    const deleted = await prisma.promotion.delete({ where: { id } });
+    const deleted = await db.promotion.delete({ where: { id } });
     res.json(deleted);
   } catch (error) {
     res.status(400).json({ message: error.message });

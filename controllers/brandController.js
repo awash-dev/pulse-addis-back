@@ -1,15 +1,40 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
-const createBrand = asyncHandler(async (req, res) => {
+const logActivity = async (action, userId, details) => {
+  if (!userId) return;
+
   try {
-    const newBrand = await prisma.brand.create({
-      data: { name: req.body.name || req.body.title }
-    });
-    await prisma.activity.create({
-      data: { action: "create Brand", userId: req.user?.id, details: { newBrand } }
-    });
-    res.json({ ...newBrand, _id: newBrand.id, title: newBrand.name });
+    await db.query(
+      `INSERT INTO "Activity" ("userId", action, details) VALUES ($1, $2, $3)`,
+      [userId, action, details],
+    );
+  } catch (error) {
+    console.error("Brand activity log error:", error.message);
+  }
+};
+
+const mapBrand = (brand) => ({
+  ...brand,
+  _id: brand.id,
+  title: brand.name,
+});
+
+const createBrand = asyncHandler(async (req, res) => {
+  const name = (req.body.name || req.body.title || "").trim();
+
+  if (!name) {
+    return res.status(400).json({ message: "Brand name is required" });
+  }
+
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO "Brand" (name) VALUES ($1) RETURNING id, name`,
+      [name],
+    );
+
+    await logActivity("create Brand", req.user?.id, { brand: rows[0] });
+    res.json(mapBrand(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -17,15 +42,24 @@ const createBrand = asyncHandler(async (req, res) => {
 
 const updateBrand = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const name = (req.body.name || req.body.title || "").trim();
+
+  if (!name) {
+    return res.status(400).json({ message: "Brand name is required" });
+  }
+
   try {
-    const updatedBrand = await prisma.brand.update({
-      where: { id },
-      data: { name: req.body.name || req.body.title }
-    });
-    await prisma.activity.create({
-      data: { action: "Update Brand", userId: req.user?.id, details: { updatedBrand } }
-    });
-    res.json({ ...updatedBrand, _id: updatedBrand.id, title: updatedBrand.name });
+    const { rows } = await db.query(
+      `UPDATE "Brand" SET name = $2 WHERE id = $1 RETURNING id, name`,
+      [id, name],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Brand not found" });
+    }
+
+    await logActivity("Update Brand", req.user?.id, { brand: rows[0] });
+    res.json(mapBrand(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -33,12 +67,19 @@ const updateBrand = asyncHandler(async (req, res) => {
 
 const deleteBrand = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   try {
-    const deletedBrand = await prisma.brand.delete({ where: { id } });
-    await prisma.activity.create({
-      data: { action: "Delete Brand", userId: req.user?.id, details: { deletedBrand } }
-    });
-    res.json({ ...deletedBrand, _id: deletedBrand.id, title: deletedBrand.name });
+    const { rows } = await db.query(
+      `DELETE FROM "Brand" WHERE id = $1 RETURNING id, name`,
+      [id],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Brand not found" });
+    }
+
+    await logActivity("Delete Brand", req.user?.id, { brand: rows[0] });
+    res.json(mapBrand(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -46,10 +87,18 @@ const deleteBrand = asyncHandler(async (req, res) => {
 
 const getBrand = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   try {
-    const brand = await prisma.brand.findUnique({ where: { id } });
-    if (!brand) return res.status(404).json({ message: "Brand not found" });
-    res.json({ ...brand, _id: brand.id, title: brand.name });
+    const { rows } = await db.query(
+      `SELECT id, name FROM "Brand" WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Brand not found" });
+    }
+
+    res.json(mapBrand(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -57,9 +106,11 @@ const getBrand = asyncHandler(async (req, res) => {
 
 const getallBrand = asyncHandler(async (req, res) => {
   try {
-    const brands = await prisma.brand.findMany({ orderBy: { name: "asc" } });
-    const mapped = brands.map(b => ({ ...b, _id: b.id, title: b.name }));
-    res.json(mapped);
+    const { rows } = await db.query(
+      `SELECT id, name FROM "Brand" ORDER BY name ASC`,
+    );
+
+    res.json(rows.map(mapBrand));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

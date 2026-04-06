@@ -1,9 +1,9 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 
 const markAsRead = async (req, res) => {
   const { notificationId } = req.params;
   try {
-    await prisma.notification.update({
+    await db.notification.update({
       where: { id: notificationId },
       data: { read: true }
     });
@@ -16,7 +16,7 @@ const markAsRead = async (req, res) => {
 const getNotifications = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
-    const notifications = await prisma.notification.findMany({
+    const notifications = await db.notification.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" }
     });
@@ -29,7 +29,7 @@ const getNotifications = async (req, res) => {
 const clearNotifications = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
-    await prisma.notification.deleteMany({ where: { userId } });
+    await db.notification.deleteMany({ where: { userId } });
     res.status(200).json({ message: "Notifications cleared" });
   } catch (error) {
     res.status(500).json({ message: "Failed to clear notifications", error: error.message });
@@ -39,7 +39,7 @@ const clearNotifications = async (req, res) => {
 const addNotification = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
-    const notification = await prisma.notification.create({
+    const notification = await db.notification.create({
       data: {
         userId,
         message: req.body.message,
@@ -55,7 +55,7 @@ const addNotification = async (req, res) => {
 const markNotificationsAsRead = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
-    await prisma.notification.updateMany({
+    await db.notification.updateMany({
       where: { userId, read: false },
       data: { read: true }
     });

@@ -1,17 +1,17 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 const createSubcategory = asyncHandler(async (req, res) => {
     try {
         const userId = req.user?.id || req.body.userId;
-        const newSubcategory = await prisma.blogSubCategory.create({
+        const newSubcategory = await db.blogSubCategory.create({
             data: {
                 name: req.body.name,
             }
         });
         
         // Activity log for subcategory creation
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "create Subcategory",
                 userId: userId,
@@ -27,13 +27,13 @@ const createSubcategory = asyncHandler(async (req, res) => {
 const updateSubcategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const updatedSubcategory = await prisma.blogSubCategory.update({
+        const updatedSubcategory = await db.blogSubCategory.update({
             where: { id },
             data: { name: req.body.name }
         });
 
         // Activity log for subcategory update
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "update Blog Subcategory",
                 userId: req.user?.id,
@@ -49,12 +49,12 @@ const updateSubcategory = asyncHandler(async (req, res) => {
 const deleteSubcategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const deletedSubcategory = await prisma.blogSubCategory.delete({
+        const deletedSubcategory = await db.blogSubCategory.delete({
             where: { id }
         });
 
         // Activity log for subcategory deletion
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "delete Blog Subcategory",
                 userId: req.user?.id,
@@ -70,7 +70,7 @@ const deleteSubcategory = asyncHandler(async (req, res) => {
 const getSubcategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const subcategory = await prisma.blogSubCategory.findUnique({
+        const subcategory = await db.blogSubCategory.findUnique({
             where: { id }
         });
         res.json(subcategory);
@@ -81,7 +81,7 @@ const getSubcategory = asyncHandler(async (req, res) => {
 
 const getallSubcategory = asyncHandler(async (req, res) => {
     try {
-        const subcategories = await prisma.blogSubCategory.findMany();
+        const subcategories = await db.blogSubCategory.findMany();
         const mapped = subcategories.map(s => ({ ...s, _id: s.id, title: s.name }));
         res.json(mapped);
     } catch (error) {

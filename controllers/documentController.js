@@ -1,4 +1,4 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const cloudinary = require("../utils/cloudinary");
 
 const createDocument = async (req, res) => {
@@ -7,14 +7,14 @@ const createDocument = async (req, res) => {
     const userId = PostedByuserId || req.user?.id;
 
     // Store document data as a JSON activity record linked to user
-    await prisma.activity.create({
+    await db.activity.create({
       data: {
         action: "Create Document",
         userId,
         details: { TinNumber, images, idCardImages, status: "pending" }
       }
     });
-    await prisma.activity.create({
+    await db.activity.create({
       data: {
         action: "Document Submitted",
         userId,
@@ -35,7 +35,7 @@ const createDocument = async (req, res) => {
 const getDocuments = async (req, res) => {
   try {
     // Fetch document submissions stored as activities
-    const docs = await prisma.activity.findMany({
+    const docs = await db.activity.findMany({
       where: { action: "Document Submitted" },
       include: {
         user: { select: { id: true, firstname: true, lastname: true, email: true } }
@@ -55,7 +55,7 @@ const updateDocumentStatus = async (req, res) => {
     const { status } = req.body;
     if (!status) return res.status(400).json({ message: "Status is required." });
 
-    const doc = await prisma.activity.update({
+    const doc = await db.activity.update({
       where: { id },
       data: { details: { status } }
     });

@@ -1,9 +1,9 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 const createEnquiry = asyncHandler(async (req, res) => {
   try {
-    const newEnquiry = await prisma.fQA.create({
+    const newEnquiry = await db.fQA.create({
       data: {
         question: req.body.question,
         answer: req.body.answer || ""
@@ -21,7 +21,7 @@ const updateEnquiry = asyncHandler(async (req, res) => {
     const data = {};
     if (req.body.question) data.question = req.body.question;
     if (req.body.answer !== undefined) data.answer = req.body.answer;
-    const updatedEnquiry = await prisma.fQA.update({ where: { id }, data });
+    const updatedEnquiry = await db.fQA.update({ where: { id }, data });
     res.json(updatedEnquiry);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -31,7 +31,7 @@ const updateEnquiry = asyncHandler(async (req, res) => {
 const deleteEnquiry = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
-    const deletedEnquiry = await prisma.fQA.delete({ where: { id } });
+    const deletedEnquiry = await db.fQA.delete({ where: { id } });
     res.json(deletedEnquiry);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -41,7 +41,7 @@ const deleteEnquiry = asyncHandler(async (req, res) => {
 const getEnquiry = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
-    const enquiry = await prisma.fQA.findUnique({ where: { id } });
+    const enquiry = await db.fQA.findUnique({ where: { id } });
     res.json(enquiry);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -50,7 +50,7 @@ const getEnquiry = asyncHandler(async (req, res) => {
 
 const getallEnquiry = asyncHandler(async (req, res) => {
   try {
-    const enquiries = await prisma.fQA.findMany();
+    const enquiries = await db.fQA.findMany();
     res.json(enquiries);
   } catch (error) {
     res.status(400).json({ message: error.message });

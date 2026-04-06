@@ -1,158 +1,231 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 } = require("uuid");
 
-// Create Store
+const mapStore = (store) => ({
+  ...store,
+  _id: store.id,
+});
+
+const logActivity = async (action, userId, details) => {
+  if (!userId) return;
+
+  try {
+    await db.query(
+      `INSERT INTO "Activity" ("userId", action, details) VALUES ($1, $2, $3)`,
+      [userId, action, details],
+    );
+  } catch (error) {
+    console.error("Store activity log error:", error.message);
+  }
+};
+
 const createStore = asyncHandler(async (req, res) => {
-    try {
-        const { storeName, address, owner_id } = req.body;
-      
-        console.log("Request Body:", req.body);
-  
-        if (!storeName || !address || !owner_id) {
-            return res.status(400).json({ message: "Missing required fields" });
-        }
+  try {
+    const { storeName, address } = req.body;
+    const ownerId = req.body.owner_id || req.body.ownerId;
 
-        const newStore = await prisma.store.create({
-            data: {
-                storeId: req.body.storeId || uuidv4(),
-                storeName,
-                ownerId: owner_id,
-                address
-            }
-        });
-
-        // Log the activity
-        await prisma.activity.create({
-            data: {
-                action: "Create store",
-                userId: owner_id,
-                details: { store: newStore }
-            }
-        });
-  
-        res.status(201).json({ message: "Store created successfully", store: newStore });
-    } catch (error) {
-        console.error("Error creating store:", error);
-        res.status(500).json({ message: "Server error", error: error.message });
+    if (!storeName || !address || !ownerId) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
+
+    const { rows } = await db.query(
+      `INSERT INTO "Store" ("storeId", "storeName", "ownerId", address)
+       VALUES ($1, $2, $3, $4)
+       RETURNING
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"`,
+      [req.body.storeId || uuidv4(), storeName, ownerId, address],
+    );
+
+    await logActivity("Create store", ownerId, { store: rows[0] });
+    res.status(201).json({
+      message: "Store created successfully",
+      store: mapStore(rows[0]),
+    });
+  } catch (error) {
+    console.error("Error creating store:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 });
 
-// Get Stores by User
 const getStoresByUser = asyncHandler(async (req, res) => {
-    const { id } = req.params; 
+  const { id } = req.params;
 
-    try {
-        if (!id) {
-            return res.status(400).json({ message: "User ID is required" });
-        }
-        const stores = await prisma.store.findMany({
-            where: { ownerId: id }
-        }); 
-
-        const mapped = stores.map(s => ({ ...s, _id: s.id }));
-        res.status(200).json(mapped);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+  try {
+    if (!id) {
+      return res.status(400).json({ message: "User ID is required" });
     }
+
+    const { rows } = await db.query(
+      `SELECT
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"
+       FROM "Store"
+       WHERE "ownerId" = $1
+       ORDER BY "storeName" ASC`,
+      [id],
+    );
+
+    res.status(200).json(rows.map(mapStore));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
-// Update Store
 const updateStore = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    try {
-        const updatedStore = await prisma.store.update({
-            where: { id },
-            data: req.body
-        });
+  const { id } = req.params;
+  const fields = [];
+  const values = [id];
 
-        await prisma.activity.create({
-            data: {
-                action: "Update store",
-                userId: updatedStore.ownerId,
-                details: { updatedStore: req.body }
-            }
-        });
-        res.json({ ...updatedStore, _id: updatedStore.id });
-    } catch (error) {
-        if (error.code === 'P2025') {
-            return res.status(404).json({ message: "Store not found" });
-        }
-        res.status(500).json({ message: error.message });
+  if (req.body.storeId !== undefined) {
+    values.push(req.body.storeId);
+    fields.push(`"storeId" = $${values.length}`);
+  }
+  if (req.body.storeName !== undefined) {
+    values.push(req.body.storeName);
+    fields.push(`"storeName" = $${values.length}`);
+  }
+  if (req.body.ownerId !== undefined || req.body.owner_id !== undefined) {
+    values.push(req.body.ownerId || req.body.owner_id);
+    fields.push(`"ownerId" = $${values.length}`);
+  }
+  if (req.body.address !== undefined) {
+    values.push(req.body.address);
+    fields.push(`address = $${values.length}`);
+  }
+
+  if (fields.length === 0) {
+    return res.status(400).json({ message: "No store fields provided" });
+  }
+
+  values.push(new Date());
+  fields.push(`"updatedAt" = $${values.length}`);
+
+  try {
+    const { rows } = await db.query(
+      `UPDATE "Store"
+       SET ${fields.join(", ")}
+       WHERE id = $1
+       RETURNING
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"`,
+      values,
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Store not found" });
     }
+
+    await logActivity("Update store", rows[0].ownerId, { store: rows[0] });
+    res.json(mapStore(rows[0]));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
-// Delete Store
 const deleteStore = asyncHandler(async (req, res) => {
-    const { id } = req.params;
+  const { id } = req.params;
 
-    try {
-        const deletedStore = await prisma.store.delete({
-            where: { id }
-        });
+  try {
+    const { rows } = await db.query(
+      `DELETE FROM "Store"
+       WHERE id = $1
+       RETURNING
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"`,
+      [id],
+    );
 
-        // Log the activity
-        await prisma.activity.create({
-            data: {
-                action: "Delete store",
-                userId: deletedStore.ownerId,
-                details: { deletedStore }
-            }
-        });
-
-        // Delete associated products
-        await prisma.product.deleteMany({
-            where: { storeId: id }
-        });
-
-        res.status(200).json({
-            message: "Store and associated products deleted successfully",
-            deletedStore: { ...deletedStore, _id: deletedStore.id },
-        });
-    } catch (error) {
-        if (error.code === 'P2025') {
-            return res.status(404).json({ message: "Store not found" });
-        }
-        res.status(500).json({ message: "Failed to delete store", error: error.message });
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Store not found" });
     }
+
+    await logActivity("Delete store", rows[0].ownerId, { store: rows[0] });
+    res.status(200).json({
+      message: "Store and associated products deleted successfully",
+      deletedStore: mapStore(rows[0]),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete store", error: error.message });
+  }
 });
 
-// Get Store by User ID (matches original logic)
 const getStore = asyncHandler(async (req, res) => {
-    const { id } = req.params; 
-    
-    try {
-        const stores = await prisma.store.findMany({
-            where: { ownerId: id }
-        });
-        
-        if (!stores || stores.length === 0) {
-            return res.status(404).json({ message: "Store not found" }); 
-        }
+  const { id } = req.params;
 
-        const mapped = stores.map(s => ({ ...s, _id: s.id }));
-        res.json(mapped);
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message }); 
+  try {
+    const { rows } = await db.query(
+      `SELECT
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"
+       FROM "Store"
+       WHERE "ownerId" = $1
+       ORDER BY "storeName" ASC`,
+      [id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Store not found" });
     }
+
+    res.json(rows.map(mapStore));
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 });
 
-// Get All Stores
 const getallStore = asyncHandler(async (req, res) => {
-    try {
-        const stores = await prisma.store.findMany({ orderBy: { storeName: "asc" } });
-        const mapped = stores.map(s => ({ ...s, _id: s.id }));
-        res.json(mapped);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+  try {
+    const { rows } = await db.query(
+      `SELECT
+         id,
+         "storeId" AS "storeId",
+         "storeName" AS "storeName",
+         "ownerId" AS "ownerId",
+         address,
+         "createdAt" AS "createdAt",
+         "updatedAt" AS "updatedAt"
+       FROM "Store"
+       ORDER BY "storeName" ASC`,
+    );
+
+    res.json(rows.map(mapStore));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 module.exports = {
-    createStore,
-    updateStore,
-    deleteStore,
-    getStore,
-    getallStore,
-    getStoresByUser,
+  createStore,
+  updateStore,
+  deleteStore,
+  getStore,
+  getallStore,
+  getStoresByUser,
 };

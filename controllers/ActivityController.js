@@ -1,4 +1,4 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 // Function to log activity
@@ -10,7 +10,7 @@ const logActivity = async (
   details = {},
 ) => {
   try {
-    const log = await prisma.activity.create({
+    const log = await db.activity.create({
       data: {
         userId,
         action,
@@ -30,7 +30,7 @@ const logActivity = async (
 
 const getallAdminActivity = asyncHandler(async (req, res) => {
   try {
-    const activities = await prisma.activity.findMany({
+    const activities = await db.activity.findMany({
         include: {
             user: {
                 select: {
@@ -57,7 +57,7 @@ const getAllActivityByRole = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Role parameter is required." });
     }
 
-    const activities = await prisma.activity.findMany({
+    const activities = await db.activity.findMany({
         where: {
             user: { role: role }
         },
@@ -89,7 +89,7 @@ const getAdminActivity = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   try {
-    const activities = await prisma.activity.findMany({
+    const activities = await db.activity.findMany({
       where: { userId: id },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -113,7 +113,7 @@ const getAdminActivity = asyncHandler(async (req, res) => {
 // Get all activity logs
 const getAllActivity = asyncHandler(async (req, res) => {
   try {
-    const activities = await prisma.activity.findMany({
+    const activities = await db.activity.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { firstname: true } }
@@ -135,7 +135,7 @@ const getEachActivity = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   try {
-    const activity = await prisma.activity.findUnique({
+    const activity = await db.activity.findUnique({
       where: { id },
       include: {
         user: { select: { firstname: true } }
@@ -161,10 +161,8 @@ const updateActivityLog = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Invalid value for Isread. It must be a boolean." });
     }
 
-    // Since our Prisma schema doesn't have Isread, we might need to add it or store it in details
-    // But for now, let's assume we can update it if it exists in the model.
-    // If not in model, we can store in Json 'details'
-    const updatedActivity = await prisma.activity.update({
+    // The current schema does not explicitly include Isread, so use details JSON if needed.
+    const updatedActivity = await db.activity.update({
       where: { id },
       data: {
         details: {
@@ -189,7 +187,7 @@ const getUnreadActivity = asyncHandler(async (req, res) => {
   try {
     // This is tricky without a dedicated column, but we'll try to filter by Json
     // In PostgreSQL, you can query Jsonb fields.
-    const activities = await prisma.activity.findMany({
+    const activities = await db.activity.findMany({
       where: {
         details: {
           path: ['Isread'],

@@ -1,16 +1,16 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 const createPackage = asyncHandler(async (req, res) => {
   try {
-    const newPackage = await prisma.package.create({
+    const newPackage = await db.package.create({
       data: {
         name: req.body.name || req.body.title,
         description: req.body.description || "",
         price: parseFloat(req.body.price) || 0
       }
     });
-    await prisma.activity.create({
+    await db.activity.create({
       data: { action: "Create Package", userId: req.user?.id, details: { newPackage } }
     });
     res.json(newPackage);
@@ -27,8 +27,8 @@ const updatePackage = asyncHandler(async (req, res) => {
     if (req.body.description) data.description = req.body.description;
     if (req.body.price !== undefined) data.price = parseFloat(req.body.price);
 
-    const updatedPackage = await prisma.package.update({ where: { id }, data });
-    await prisma.activity.create({
+    const updatedPackage = await db.package.update({ where: { id }, data });
+    await db.activity.create({
       data: { action: "Update Package", userId: req.user?.id, details: { updatedPackage } }
     });
     res.json(updatedPackage);
@@ -40,8 +40,8 @@ const updatePackage = asyncHandler(async (req, res) => {
 const deletePackage = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
-    const deletedPackage = await prisma.package.delete({ where: { id } });
-    await prisma.activity.create({
+    const deletedPackage = await db.package.delete({ where: { id } });
+    await db.activity.create({
       data: { action: "Delete Package", userId: req.user?.id, details: { deletedPackage } }
     });
     res.json(deletedPackage);
@@ -53,7 +53,7 @@ const deletePackage = asyncHandler(async (req, res) => {
 const getPackage = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
-    const packageData = await prisma.package.findUnique({ where: { id } });
+    const packageData = await db.package.findUnique({ where: { id } });
     res.json(packageData);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -62,7 +62,7 @@ const getPackage = asyncHandler(async (req, res) => {
 
 const getAllPackages = asyncHandler(async (req, res) => {
   try {
-    const packages = await prisma.package.findMany({ orderBy: { createdAt: "desc" } });
+    const packages = await db.package.findMany({ orderBy: { createdAt: "desc" } });
     res.json(packages);
   } catch (error) {
     res.status(400).json({ message: error.message });

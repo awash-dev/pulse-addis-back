@@ -59,8 +59,6 @@ router.get("/userCounts", getUserCount);
 router.get("/delivery-boys", authMiddleware, getDeliveryBoys);
 router.put("/delivery-boys/:id", authMiddleware, isAdmin, updatedUser);
 router.delete("/delivery-boys/:id", authMiddleware, isAdmin, deleteaUser);
-router.get("/:id", getaUser);
-router.put("/:id", updatedUser);
 
 router.post("/register", createUser);
 router.post("/appRegister", createAppUser);
@@ -103,12 +101,14 @@ router.delete("/remove-wishlist/:id", authMiddleware, removeFromWishlist); // pr
 
 router.delete("/empty-cart", authMiddleware, emptyCart);
 
-router.delete("/:id", deleteaUser);
-
 router.put("/edit-user", authMiddleware, updatedUser);
 router.put("/save-address", authMiddleware, saveAddress);
 router.put("/block-user/:id", authMiddleware, isAdmin, blockUser);
 router.put("/unblock-user/:id", authMiddleware, isAdmin, unblockUser);
+
+router.get("/:id", getaUser);
+router.put("/:id", updatedUser);
+router.delete("/:id", deleteaUser);
 
 
 

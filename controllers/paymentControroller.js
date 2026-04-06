@@ -1,6 +1,6 @@
 const dotenv = require("dotenv");
 const axios = require("axios");
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 
 dotenv.config();
 
@@ -44,7 +44,7 @@ const initializePayment = async (req, res) => {
           }))
         : [];
 
-      const newOrder = await prisma.order.create({
+      const newOrder = await db.order.create({
         data: {
           userId,
           firstName: first_name,
@@ -69,7 +69,7 @@ const initializePayment = async (req, res) => {
       });
 
       // Create notification
-      await prisma.notification.create({
+      await db.notification.create({
         data: {
           userId,
           message: `New order created with ref: ${tx_ref}`,
@@ -95,7 +95,7 @@ const verifyPayment = async (req, res) => {
     });
 
     if (verifyResponse.data.status === "success") {
-      const order = await prisma.order.updateMany({
+      const order = await db.order.updateMany({
         where: { txRef: tx_ref },
         data: { status: "active" }
       });

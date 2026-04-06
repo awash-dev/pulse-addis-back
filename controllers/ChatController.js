@@ -1,4 +1,4 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 
 // Map Conversation model to Chat-like API for frontend compatibility
 const accessChat = async (req, res) => {
@@ -11,7 +11,7 @@ const accessChat = async (req, res) => {
 
   try {
     // Find existing conversation with exactly these 2 users
-    const existing = await prisma.conversation.findFirst({
+    const existing = await db.conversation.findFirst({
       where: {
         AND: [
           { users: { some: { id: myId } } },
@@ -26,7 +26,7 @@ const accessChat = async (req, res) => {
 
     if (existing) return res.status(200).json(existing);
 
-    const newConvo = await prisma.conversation.create({
+    const newConvo = await db.conversation.create({
       data: {
         users: { connect: [{ id: myId }, { id: userId }] }
       },
@@ -44,7 +44,7 @@ const accessChat = async (req, res) => {
 const getChats = async (req, res) => {
   const myId = req.user?.id || req.user?._id;
   try {
-    const convos = await prisma.conversation.findMany({
+    const convos = await db.conversation.findMany({
       where: { users: { some: { id: myId } } },
       include: {
         users: { select: { id: true, firstname: true, lastname: true, email: true } },

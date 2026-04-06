@@ -1,7 +1,7 @@
 const { generateToken } = require("../utils/createToken");
-const prisma = require("../configure/prismaClient");
+const db = require("../configure/dbClient");
 const asyncHandler = require("express-async-handler");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 
 const registerUser = asyncHandler(async (req, res) => {
   const { firstName, lastName, email, role, password } = req.body;
@@ -12,7 +12,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await prisma.user.create({
+    const newUser = await db.user.create({
       data: {
         firstname: firstName,
         lastname: lastName,
@@ -24,7 +24,7 @@ const registerUser = asyncHandler(async (req, res) => {
     });
 
     // Log Activity
-    await prisma.activity.create({
+    await db.activity.create({
       data: {
         action: "admin-register-user",
         userId: newUser.id,

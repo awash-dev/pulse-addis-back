@@ -1,11 +1,11 @@
-const prisma = require("../configure/prismaClient");
+const db = require("../configure/dbClient");
 const asyncHandler = require("express-async-handler");
 const uploadImageOnCloudinary = require("../utils/cloudinary");
 const fs = require("fs");
 
 const createBlog = asyncHandler(async (req, res) => {
     try {
-        const newBlog = await prisma.blog.create({
+        const newBlog = await db.blog.create({
             data: {
                 title: req.body.title,
                 slug: req.body.slug || `${req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Math.random().toString(36).substring(2, 6)}`,
@@ -20,7 +20,7 @@ const createBlog = asyncHandler(async (req, res) => {
         });
         
         try {
-            await prisma.activity.create({
+            await db.activity.create({
                 data: {
                     action: "create Blog",
                     userId: req.user?.id || req.body.userId || "system", // Fallback to system track
@@ -53,12 +53,12 @@ const updateBlog = asyncHandler(async (req, res) => {
             updateData.content = req.body.description;
         }
 
-        const updatedBlog = await prisma.blog.update({
+        const updatedBlog = await db.blog.update({
             where: { id },
             data: updateData
         });
 
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "Update Blog",
                 userId: req.user?.id || req.body.userId,
@@ -74,12 +74,12 @@ const updateBlog = asyncHandler(async (req, res) => {
 const getBlog = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const blog = await prisma.blog.findUnique({
+        const blog = await db.blog.findUnique({
             where: { id }
         });
         
         if (blog) {
-            await prisma.blog.update({
+            await db.blog.update({
                 where: { id },
                 data: { numViews: { increment: 1 } }
             });
@@ -93,7 +93,7 @@ const getBlog = asyncHandler(async (req, res) => {
 
 const getAllBlogs = asyncHandler(async (req, res) => {
     try {
-        const blogs = await prisma.blog.findMany();
+        const blogs = await db.blog.findMany();
         const mapped = blogs.map(b => ({ ...b, _id: b.id }));
         res.json(mapped);
     } catch (error) {
@@ -104,11 +104,11 @@ const getAllBlogs = asyncHandler(async (req, res) => {
 const deleteBlog = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const deletedBlog = await prisma.blog.delete({
+        const deletedBlog = await db.blog.delete({
             where: { id }
         });
 
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "Delete Blog",
                 userId: req.user?.id || req.body.userId,
@@ -126,7 +126,7 @@ const liketheBlog = asyncHandler(async (req, res) => {
     const loginUserId = req?.user?.id;
     
     try {
-        const blog = await prisma.blog.findUnique({ where: { id: blogId } });
+        const blog = await db.blog.findUnique({ where: { id: blogId } });
         let likes = Array.isArray(blog.likes) ? blog.likes : [];
         
         if (likes.includes(loginUserId)) {
@@ -135,7 +135,7 @@ const liketheBlog = asyncHandler(async (req, res) => {
             likes.push(loginUserId);
         }
         
-        const updatedBlog = await prisma.blog.update({
+        const updatedBlog = await db.blog.update({
             where: { id: blogId },
             data: { likes, isLiked: likes.length > 0 }
         });
@@ -151,7 +151,7 @@ const disliketheBlog = asyncHandler(async (req, res) => {
     const loginUserId = req?.user?.id;
     
     try {
-        const blog = await prisma.blog.findUnique({ where: { id: blogId } });
+        const blog = await db.blog.findUnique({ where: { id: blogId } });
         let dislikes = Array.isArray(blog.dislikes) ? blog.dislikes : [];
         
         if (dislikes.includes(loginUserId)) {
@@ -160,7 +160,7 @@ const disliketheBlog = asyncHandler(async (req, res) => {
             dislikes.push(loginUserId);
         }
         
-        const updatedBlog = await prisma.blog.update({
+        const updatedBlog = await db.blog.update({
             where: { id: blogId },
             data: { dislikes, isDisliked: dislikes.length > 0 }
         });

@@ -1,9 +1,9 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 
 const getConversations = async (req, res) => {
   try {
     const userId = req.params.userId || req.user?.id;
-    const conversations = await prisma.conversation.findMany({
+    const conversations = await db.conversation.findMany({
       where: { users: { some: { id: userId } } },
       include: {
         users: { select: { id: true, firstname: true, lastname: true, email: true } },

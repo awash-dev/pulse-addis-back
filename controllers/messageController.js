@@ -1,4 +1,4 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 const sendMessage = asyncHandler(async (req, res) => {
@@ -8,12 +8,12 @@ const sendMessage = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Message or chatId (conversationId) missing." });
   }
   try {
-    const message = await prisma.message.create({
+    const message = await db.message.create({
       data: { conversationId: chatId, senderId, text: content },
       include: { sender: { select: { id: true, firstname: true, lastname: true } } }
     });
     // Touch conversation updatedAt
-    await prisma.conversation.update({
+    await db.conversation.update({
       where: { id: chatId },
       data: { updatedAt: new Date() }
     });
@@ -27,7 +27,7 @@ const getMessages = asyncHandler(async (req, res) => {
   const conversationId = req.params.id;
   if (!conversationId) return res.status(400).json({ error: "conversationId not found in params." });
   try {
-    const messages = await prisma.message.findMany({
+    const messages = await db.message.findMany({
       where: { conversationId },
       include: { sender: { select: { id: true, firstname: true, lastname: true } } },
       orderBy: { createdAt: "asc" }

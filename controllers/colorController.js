@@ -1,18 +1,41 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
-const createColor = asyncHandler(async (req, res) => {
+const logActivity = async (action, userId, details) => {
+  if (!userId) return;
+
   try {
-    const newColor = await prisma.color.create({
-      data: {
-        name: req.body.title || req.body.name,
-        code: req.body.code || null
-      }
-    });
-    await prisma.activity.create({
-      data: { action: "create Color", userId: req.user?.id, details: { newColor } }
-    });
-    res.json(newColor);
+    await db.query(
+      `INSERT INTO "Activity" ("userId", action, details) VALUES ($1, $2, $3)`,
+      [userId, action, details],
+    );
+  } catch (error) {
+    console.error("Color activity log error:", error.message);
+  }
+};
+
+const mapColor = (color) => ({
+  ...color,
+  _id: color.id,
+  title: color.name,
+});
+
+const createColor = asyncHandler(async (req, res) => {
+  const name = (req.body.title || req.body.name || "").trim();
+  const code = req.body.code || null;
+
+  if (!name) {
+    return res.status(400).json({ message: "Color name is required" });
+  }
+
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO "Color" (name, code) VALUES ($1, $2) RETURNING id, name, code`,
+      [name, code],
+    );
+
+    await logActivity("create Color", req.user?.id, { color: rows[0] });
+    res.json(mapColor(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -20,18 +43,28 @@ const createColor = asyncHandler(async (req, res) => {
 
 const updateColor = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const name = (req.body.title || req.body.name || "").trim();
+  const code = req.body.code ?? null;
+
+  if (!name) {
+    return res.status(400).json({ message: "Color name is required" });
+  }
+
   try {
-    const updatedColor = await prisma.color.update({
-      where: { id },
-      data: {
-        name: req.body.title || req.body.name,
-        code: req.body.code
-      }
-    });
-    await prisma.activity.create({
-      data: { action: "Update Color", userId: req.user?.id, details: { updatedColor } }
-    });
-    res.json(updatedColor);
+    const { rows } = await db.query(
+      `UPDATE "Color"
+       SET name = $2, code = $3
+       WHERE id = $1
+       RETURNING id, name, code`,
+      [id, name, code],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Color not found" });
+    }
+
+    await logActivity("Update Color", req.user?.id, { color: rows[0] });
+    res.json(mapColor(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -39,12 +72,19 @@ const updateColor = asyncHandler(async (req, res) => {
 
 const deleteColor = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   try {
-    const deletedColor = await prisma.color.delete({ where: { id } });
-    await prisma.activity.create({
-      data: { action: "Delete Color", userId: req.user?.id, details: { deletedColor } }
-    });
-    res.json(deletedColor);
+    const { rows } = await db.query(
+      `DELETE FROM "Color" WHERE id = $1 RETURNING id, name, code`,
+      [id],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Color not found" });
+    }
+
+    await logActivity("Delete Color", req.user?.id, { color: rows[0] });
+    res.json(mapColor(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -52,21 +92,40 @@ const deleteColor = asyncHandler(async (req, res) => {
 
 const getColor = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   try {
-    const color = await prisma.color.findUnique({ where: { id } });
-    res.json(color);
+    const { rows } = await db.query(
+      `SELECT id, name, code FROM "Color" WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Color not found" });
+    }
+
+    res.json(mapColor(rows[0]));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
 
 const getColorsByIds = asyncHandler(async (req, res) => {
-  const { ids } = req.body;
+  const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
+
+  if (ids.length === 0) {
+    return res.json([]);
+  }
+
   try {
-    const colors = await prisma.color.findMany({
-      where: { id: { in: ids } }
-    });
-    res.json(colors);
+    const { rows } = await db.query(
+      `SELECT id, name, code
+       FROM "Color"
+       WHERE id = ANY($1::text[])
+       ORDER BY name ASC`,
+      [ids],
+    );
+
+    res.json(rows.map(mapColor));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -74,8 +133,11 @@ const getColorsByIds = asyncHandler(async (req, res) => {
 
 const getallColor = asyncHandler(async (req, res) => {
   try {
-    const colors = await prisma.color.findMany({ orderBy: { name: "asc" } });
-    res.json(colors);
+    const { rows } = await db.query(
+      `SELECT id, name, code FROM "Color" ORDER BY name ASC`,
+    );
+
+    res.json(rows.map(mapColor));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

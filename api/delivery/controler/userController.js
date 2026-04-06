@@ -1,17 +1,17 @@
-const prisma = require("../../../configure/prismaClient");
+const db = require("../../../configure/dbClient");
 const asyncHandler = require("express-async-handler");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 
 // Create User (Legacy compatibility)
 const createUser = asyncHandler(async (req, res) => {
   const { firstname, lastname, username, email, password, mobile, role } = req.body;
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+  const existingUser = await db.user.findUnique({ where: { email } });
   if (existingUser) return res.status(400).json({ message: "User already exists." });
 
   // Use the same hashing logic as userController if possible, but keeping it simple for now
   // Note: Better to use the main userController.js for this.
-  const newUser = await prisma.user.create({
+  const newUser = await db.user.create({
     data: {
       firstname,
       lastname,
@@ -28,7 +28,7 @@ const createUser = asyncHandler(async (req, res) => {
 // Get All Delivery Boys
 const getDeliveryBoys = asyncHandler(async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const deliveryBoys = await prisma.user.findMany({ 
+  const deliveryBoys = await db.user.findMany({ 
     where: { role: "deliveryBoy" },
     orderBy: { createdAt: 'desc' }
   });
@@ -39,7 +39,7 @@ const getDeliveryBoys = asyncHandler(async (req, res) => {
 // Get Assigned Orders
 const getAssignedOrders = asyncHandler(async (req, res) => {
   const { deliveryPersonId } = req.params;
-  const orders = await prisma.order.findMany({
+  const orders = await db.order.findMany({
     where: { assignedToId: deliveryPersonId },
     include: { items: { include: { product: true } } }
   });
@@ -49,7 +49,7 @@ const getAssignedOrders = asyncHandler(async (req, res) => {
 // Update Delivery Boy
 const updateDeliveryBoy = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const updated = await prisma.user.update({
+  const updated = await db.user.update({
     where: { id },
     data: req.body,
   });
@@ -59,7 +59,7 @@ const updateDeliveryBoy = asyncHandler(async (req, res) => {
 // Delete Delivery Boy
 const deleteDeliveryBoy = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  await prisma.user.delete({ where: { id } });
+  await db.user.delete({ where: { id } });
   res.status(204).json({ message: "Delivery boy deleted successfully." });
 });
 
@@ -68,7 +68,7 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { status } = req.body;
 
-  const updatedOrder = await prisma.order.update({
+  const updatedOrder = await db.order.update({
     where: { id: orderId },
     data: { status: status }
   });
@@ -79,7 +79,7 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
 // Get Delivery Boy By ID
 const getDeliveryBoyById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const deliveryBoy = await prisma.user.findFirst({
+  const deliveryBoy = await db.user.findFirst({
     where: { id, role: "deliveryBoy" }
   });
 
@@ -93,7 +93,7 @@ const getDeliveryBoyById = asyncHandler(async (req, res) => {
 // Activate User
 const activateUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const user = await prisma.user.update({
+  const user = await db.user.update({
     where: { id },
     data: { isActive: true }
   });
@@ -103,7 +103,7 @@ const activateUser = asyncHandler(async (req, res) => {
 // Deactivate Delivery Person
 const deactivateDeliveryPerson = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const user = await prisma.user.update({
+  const user = await db.user.update({
     where: { id },
     data: { isActive: false }
   });

@@ -13,11 +13,11 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const morgan = require("morgan");
-const prisma = require("./configure/prismaClient");
 
 // 1. Load Environment Variables (Using Absolute Path for cPanel Compatibility)
 dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PORT || 4000;
+const db = require("./configure/dbClient");
 
 // 2. CORS Configuration
 const allowedOrigins = [
@@ -53,16 +53,6 @@ app.use(
 
 // Handle preflight requests
 app.options("*", cors());
-
-// 3. Database Connection Check
-prisma.$connect()
-  .then(() => {
-    console.log("✅ Database connected successfully via Prisma.");
-  })
-  .catch((err) => {
-    console.error("❌ Database connection failed:", err.message);
-  });
-
 
 // 4. Middleware
 app.use(morgan("dev"));
@@ -102,6 +92,16 @@ const PackageRoute = require("./routes/packageRouter");
 const ChatRoutes = require("./routes/chatroutes");
 const HealthAdviceRouter = require("./routes/healthAdvice");
 const AdRouter = require("./routes/adRoutes");
+
+// 3. Database Connection Check
+db.pool.connect()
+  .then((client) => {
+    client.release();
+    console.log("✅ Database connected successfully via PostgreSQL.");
+  })
+  .catch((err) => {
+    console.error("❌ Database connection failed:", err.message);
+  });
 
 // 6. Healthy Check / Root Route (Explicit Content-Type for cPanel Recognition)
 app.get("/", (req, res) => {

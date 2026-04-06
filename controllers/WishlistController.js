@@ -1,31 +1,58 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
-// Fetch user's wishlist
+const WISHLIST_SELECT = `
+  SELECT
+    p.id,
+    p.title,
+    p.slug,
+    p.description,
+    p.price,
+    p."oldPrice" AS "oldPrice",
+    p.category,
+    p.subcategory,
+    p.brand,
+    p.quantity,
+    p.sold,
+    p."postedByUserId" AS "postedByUserId",
+    p."storeId" AS "storeId",
+    p.status,
+    p."rejectionReason" AS "rejectionReason",
+    p.images,
+    p.strength,
+    p."requiresPrescription" AS "requiresPrescription",
+    p."prescriptionPlans" AS "prescriptionPlans",
+    p.tags,
+    p.discount,
+    p."totalRating" AS "totalRating",
+    p."createdAt" AS "createdAt",
+    p."updatedAt" AS "updatedAt"
+  FROM "Wishlist" w
+  JOIN "Product" p ON p.id = w."productId"
+`;
+
+const getWishlistProducts = async (userId) => {
+  const { rows } = await db.query(
+    `${WISHLIST_SELECT}
+     WHERE w."userId" = $1
+     ORDER BY p."createdAt" DESC`,
+    [userId],
+  );
+
+  return rows.map((product) => ({ ...product, _id: product.id }));
+};
+
 const getWishlist = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
-    
-    // Find user and include their wishlist products
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        wishlist: true
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    res.json(user.wishlist || []);
+    const wishlist = await getWishlistProducts(userId);
+    res.json(wishlist);
   } catch (error) {
     console.error("Error fetching wishlist:", error);
     res.status(500).json({ message: "An error occurred while fetching the wishlist." });
   }
 });
 
-// Add a product to the wishlist
 const addToWishlist = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
@@ -35,26 +62,21 @@ const addToWishlist = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Product ID is missing" });
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        wishlist: {
-          connect: { id: productId }
-        }
-      },
-      include: {
-        wishlist: true
-      }
-    });
+    await db.query(
+      `INSERT INTO "Wishlist" ("userId", "productId")
+       VALUES ($1, $2)
+       ON CONFLICT ("userId", "productId") DO NOTHING`,
+      [userId, productId],
+    );
 
-    res.json(updatedUser.wishlist);
+    const wishlist = await getWishlistProducts(userId);
+    res.json(wishlist);
   } catch (error) {
     console.error("Error adding product to wishlist:", error);
     res.status(500).json({ message: "An error occurred while adding the product to the wishlist." });
   }
 });
 
-// Remove a product from the wishlist
 const removeFromWishlist = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
@@ -64,14 +86,10 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Product ID is missing" });
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        wishlist: {
-          disconnect: { id: productId }
-        }
-      }
-    });
+    await db.query(
+      `DELETE FROM "Wishlist" WHERE "userId" = $1 AND "productId" = $2`,
+      [userId, productId],
+    );
 
     res.json({ message: "Product removed from wishlist successfully" });
   } catch (error) {
@@ -80,21 +98,15 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
   }
 });
 
-// Get total number of items in the wishlist
 const getWishlistTotal = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
-    
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        _count: {
-          select: { wishlist: true }
-        }
-      }
-    });
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS total FROM "Wishlist" WHERE "userId" = $1`,
+      [userId],
+    );
 
-    res.json({ total: user?._count.wishlist || 0 });
+    res.json({ total: rows[0]?.total || 0 });
   } catch (error) {
     console.error("Error fetching total wishlist items:", error);
     res.status(500).json({ message: "An error occurred while fetching the total number of wishlist items." });

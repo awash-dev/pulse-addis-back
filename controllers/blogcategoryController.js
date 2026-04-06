@@ -1,17 +1,17 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 const createCategory = asyncHandler(async (req, res) => {
     try {
         const userId = req.user?.id || req.body.userId;
-        const newCategory = await prisma.blogCategory.create({
+        const newCategory = await db.blogCategory.create({
             data: {
                 name: req.body.name,
             }
         });
         
         // Activity log for category creation
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "create Blog Category",
                 userId: userId,
@@ -28,13 +28,13 @@ const createCategory = asyncHandler(async (req, res) => {
 const updateCategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const updatedCategory = await prisma.blogCategory.update({
+        const updatedCategory = await db.blogCategory.update({
             where: { id },
             data: { name: req.body.name }
         });
 
         // Activity log for category update
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "update Category",
                 userId: req.user?.id,
@@ -51,12 +51,12 @@ const updateCategory = asyncHandler(async (req, res) => {
 const deleteCategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const deletedCategory = await prisma.blogCategory.delete({
+        const deletedCategory = await db.blogCategory.delete({
             where: { id }
         });
 
         // Activity log for category deletion
-        await prisma.activity.create({
+        await db.activity.create({
             data: {
                 action: "Delete BlogCategory",
                 userId: req.user?.id,
@@ -72,7 +72,7 @@ const deleteCategory = asyncHandler(async (req, res) => {
 const getCategory = asyncHandler(async (req, res) => {
     const { id } = req.params;
     try {
-        const category = await prisma.blogCategory.findUnique({
+        const category = await db.blogCategory.findUnique({
             where: { id }
         });
         res.json(category);
@@ -83,7 +83,7 @@ const getCategory = asyncHandler(async (req, res) => {
 
 const getallCategory = asyncHandler(async (req, res) => {
     try {
-        const categories = await prisma.blogCategory.findMany();
+        const categories = await db.blogCategory.findMany();
         const mapped = categories.map(c => ({ ...c, _id: c.id, title: c.name }));
         res.json(mapped);
     } catch (error) {

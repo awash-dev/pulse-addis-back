@@ -1,16 +1,16 @@
-const prisma = require("../configure/prismaClient.js");
+const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
 // --- AdHome Controllers ---
 const createAdHome = asyncHandler(async (req, res) => {
-  const ad = await prisma.adHome.create({
+  const ad = await db.adHome.create({
     data: req.body
   });
   res.status(201).json(ad);
 });
 
 const getAdHome = asyncHandler(async (req, res) => {
-  const ads = await prisma.adHome.findMany({
+  const ads = await db.adHome.findMany({
     where: { isActive: true },
     orderBy: { createdAt: 'desc' }
   });
@@ -19,7 +19,7 @@ const getAdHome = asyncHandler(async (req, res) => {
 
 const updateAdHome = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const ad = await prisma.adHome.update({
+  const ad = await db.adHome.update({
     where: { id },
     data: req.body
   });
@@ -28,14 +28,14 @@ const updateAdHome = asyncHandler(async (req, res) => {
 
 // --- SpecialAd Controllers ---
 const createSpecialAd = asyncHandler(async (req, res) => {
-  const ad = await prisma.specialAd.create({
+  const ad = await db.specialAd.create({
     data: req.body
   });
   res.status(201).json(ad);
 });
 
 const getSpecialAds = asyncHandler(async (req, res) => {
-  const ads = await prisma.specialAd.findMany({
+  const ads = await db.specialAd.findMany({
     where: { isActive: true },
     orderBy: { createdAt: 'desc' }
   });
@@ -44,7 +44,7 @@ const getSpecialAds = asyncHandler(async (req, res) => {
 
 const updateSpecialAd = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const ad = await prisma.specialAd.update({
+  const ad = await db.specialAd.update({
     where: { id },
     data: req.body
   });
@@ -53,14 +53,14 @@ const updateSpecialAd = asyncHandler(async (req, res) => {
 
 // --- BannerAd Controllers ---
 const createBannerAd = asyncHandler(async (req, res) => {
-  const ad = await prisma.bannerAd.create({
+  const ad = await db.bannerAd.create({
     data: req.body
   });
   res.status(201).json(ad);
 });
 
 const getBannerAds = asyncHandler(async (req, res) => {
-  const ads = await prisma.bannerAd.findMany({
+  const ads = await db.bannerAd.findMany({
     where: { isActive: true },
     orderBy: { createdAt: 'desc' }
   });
@@ -69,7 +69,7 @@ const getBannerAds = asyncHandler(async (req, res) => {
 
 const updateBannerAd = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const ad = await prisma.bannerAd.update({
+  const ad = await db.bannerAd.update({
     where: { id },
     data: req.body
   });
@@ -79,9 +79,9 @@ const updateBannerAd = asyncHandler(async (req, res) => {
 // Aggregated ads for one-shot fetch
 const getAllAds = asyncHandler(async (req, res) => {
   const [homeAds, specialAds, bannerAds] = await Promise.all([
-    prisma.adHome.findMany({ where: { isActive: true } }),
-    prisma.specialAd.findMany({ where: { isActive: true } }),
-    prisma.bannerAd.findMany({ where: { isActive: true } })
+    db.adHome.findMany({ where: { isActive: true } }),
+    db.specialAd.findMany({ where: { isActive: true } }),
+    db.bannerAd.findMany({ where: { isActive: true } })
   ]);
   
   res.json({
@@ -94,9 +94,9 @@ const getAllAds = asyncHandler(async (req, res) => {
 const deleteAd = asyncHandler(async (req, res) => {
   const { type, id } = req.params;
   let deleted;
-  if (type === 'home') deleted = await prisma.adHome.delete({ where: { id } });
-  if (type === 'special') deleted = await prisma.specialAd.delete({ where: { id } });
-  if (type === 'banner') deleted = await prisma.bannerAd.delete({ where: { id } });
+  if (type === 'home') deleted = await db.adHome.delete({ where: { id } });
+  if (type === 'special') deleted = await db.specialAd.delete({ where: { id } });
+  if (type === 'banner') deleted = await db.bannerAd.delete({ where: { id } });
   
   res.json({ message: "Ad deleted", deleted });
 });

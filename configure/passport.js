@@ -1,6 +1,6 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const prisma = require('../configure/prismaClient');
+const db = require('../configure/dbClient');
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -13,18 +13,18 @@ passport.use(new GoogleStrategy({
         const firstname = name.givenName;
         const lastname = name.familyName;
 
-        let user = await prisma.user.findUnique({ where: { googleId: id } });
+        let user = await db.user.findUnique({ where: { googleId: id } });
 
         if (!user) {
             // Check if user with this email exists first
-            user = await prisma.user.findUnique({ where: { email } });
+            user = await db.user.findUnique({ where: { email } });
             if (user) {
-                user = await prisma.user.update({
+                user = await db.user.update({
                    where: { email },
                    data: { googleId: id, provider: 'google' }
                 });
             } else {
-                user = await prisma.user.create({
+                user = await db.user.create({
                     data: {
                         googleId: id,
                         email,
@@ -48,7 +48,7 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async (id, done) => {
     try {
-        const user = await prisma.user.findUnique({ where: { id } });
+        const user = await db.user.findUnique({ where: { id } });
         done(null, user);
     } catch (err) {
         done(err, null);
@@ -69,17 +69,17 @@ passport.use(new FacebookStrategy({
         const firstname = name.givenName;
         const lastname = name.familyName;
 
-        let user = await prisma.user.findUnique({ where: { facebookId: id } });
+        let user = await db.user.findUnique({ where: { facebookId: id } });
 
         if (!user) {
-            user = await prisma.user.findUnique({ where: { email } });
+            user = await db.user.findUnique({ where: { email } });
             if (user) {
-                user = await prisma.user.update({
+                user = await db.user.update({
                    where: { email },
                    data: { facebookId: id, provider: 'facebook' }
                 });
             } else {
-                user = await prisma.user.create({
+                user = await db.user.create({
                     data: {
                         facebookId: id,
                         email,
