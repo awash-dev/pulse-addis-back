@@ -185,20 +185,21 @@ const updateActivityLog = asyncHandler(async (req, res) => {
 // Get all unread activity logs
 const getUnreadActivity = asyncHandler(async (req, res) => {
   try {
-    // This is tricky without a dedicated column, but we'll try to filter by Json
-    // In PostgreSQL, you can query Jsonb fields.
-    const activities = await db.activity.findMany({
-      where: {
-        details: {
-          path: ['Isread'],
-          equals: false
-        }
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: { select: { firstname: true } }
-      }
-    });
+    // Use raw SQL for reliable JSONB filtering:
+    // "unread" = Isread is false OR Isread key is absent (new activity)
+    const result = await db.query(
+      `SELECT a.*, 
+              u.firstname AS "userFirstname"
+       FROM "Activity" a
+       LEFT JOIN "User" u ON u.id = a."userId"
+       WHERE (a.details->>'Isread' IS NULL OR a.details->>'Isread' = 'false')
+       ORDER BY a."createdAt" DESC`
+    );
+
+    const activities = result.rows.map((row) => ({
+      ...row,
+      user: row.userFirstname ? { firstname: row.userFirstname } : null,
+    }));
 
     if (activities.length === 0) {
       return res.status(202).json({ message: "No unread activity found" });

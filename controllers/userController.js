@@ -5,12 +5,53 @@ const { generateRefreshToken } = require("../utils/refreshtoken");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const { v4: uuidv4 } = require("uuid");
 const sendEmail = require("../utils/sendEmail");
 const { validationResult } = require("express-validator");
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
+
+const normalizeSelectedColor = (selectedColor) => {
+  if (typeof selectedColor === "string") {
+    return selectedColor;
+  }
+
+  if (!selectedColor) {
+    return "default";
+  }
+
+  return (
+    selectedColor.color?.title ||
+    selectedColor.title ||
+    selectedColor.label ||
+    selectedColor.value ||
+    selectedColor._id ||
+    selectedColor.id ||
+    "default"
+  );
+};
+
+const normalizeSelectedSize = (selectedSize) => {
+  if (typeof selectedSize === "string") {
+    return selectedSize;
+  }
+
+  return selectedSize ? String(selectedSize) : "standard";
+};
+
+const sanitizePhone = (phone) => {
+  if (!phone) return null;
+  let cleaned = String(phone).replace(/[^\d+]/g, "");
+  // Normalize +251 to 0 format commonly used in local systems
+  if (cleaned.startsWith("+251")) cleaned = "0" + cleaned.slice(4);
+  else if (cleaned.startsWith("251") && cleaned.length > 9) cleaned = "0" + cleaned.slice(3);
+  // Ensure it's a 10 digit number starting with 0
+  if (/^[79]\d{8}$/.test(cleaned)) cleaned = "0" + cleaned;
+  return cleaned;
+};
+
 const USER_PUBLIC_FIELDS = `
   id,
   firstname,
@@ -48,15 +89,18 @@ const createUser = asyncHandler(async (req, res) => {
   const otpPassword = generateOTP();
   const hashedPassword = await bcrypt.hash(otpPassword, 10);
 
+  const userData = {
+    firstname,
+    lastname,
+    email: email.toLowerCase().trim(),
+    role: role || "user",
+    mobile: sanitizePhone(mobile),
+    password: hashedPassword,
+    isEmailVerified: true // admin-created users skip verification
+  };
+
   const newUser = await db.user.create({
-    data: {
-      firstname, lastname,
-      email: email.toLowerCase().trim(),
-      role: role || "user",
-      mobile,
-      password: hashedPassword,
-      isEmailVerified: true // admin-created users skip verification
-    }
+    data: userData
   });
 
   const token = generateToken(newUser.id);
@@ -84,16 +128,19 @@ const createAppUser = asyncHandler(async (req, res) => {
   const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
   const expires = new Date(Date.now() + 10 * 60 * 1000);
 
+  const userData = {
+    firstname,
+    lastname,
+    email: email.toLowerCase().trim(),
+    password: hashedPassword,
+    mobile: sanitizePhone(mobile) || "0000000000",
+    role: role || "user",
+    emailVerificationOTP: hashedOtp,
+    emailVerificationExpires: expires
+  };
+
   const newUser = await db.user.create({
-    data: {
-      firstname, lastname,
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      mobile: mobile || "0000000000",
-      role: role || "user",
-      emailVerificationOTP: hashedOtp,
-      emailVerificationExpires: expires
-    }
+    data: userData
   });
 
   const message = `Your OTP for email verification: ${otp}. Valid for 10 minutes.`;
@@ -127,73 +174,92 @@ const verifyEmail = asyncHandler(async (req, res) => {
   res.status(200).json({ message: "Email verified successfully" });
 });
 
-// ─── Forgot password ───────────────────────────────────────────────────────
+// ─── Forgot password ─────────────────────────────────────────────────────
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const user = await db.user.findUnique({ where: { email } });
+  const normalizedEmail = email?.toLowerCase().trim();
+  const user = await db.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) return res.status(404).json({ message: "User not found" });
 
-  const otpPassword = generateOTP();
-  const hashedPassword = await bcrypt.hash(otpPassword, 10);
-  const token = generateToken(user.id);
-  const resetUrl = `${process.env.base_url}reset-password?token=${token}`;
+  const otp = generateOTP();
+  const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
+  const expires = new Date(Date.now() + 10 * 60 * 1000);
 
-  await db.user.update({ where: { email }, data: { password: hashedPassword } });
+  await db.user.update({
+    where: { email: normalizedEmail },
+    data: {
+      passwordResetOTP: hashedOTP,
+      passwordResetExpires: expires,
+    },
+  });
 
-  const message = `Reset link: ${resetUrl}\nTemporary password: ${otpPassword}`;
+  const message = `Your password reset OTP is ${otp}. It expires in 10 minutes.`;
   try {
     await sendEmail({ email: user.email, subject: "Password Reset – Pulse Addis", message });
-    res.status(200).json({ message: "OTP sent to your email." });
+    res.status(200).json({ message: "Password reset OTP sent to your email." });
   } catch (error) {
-    res.status(500).json({ message: "Error sending OTP. Try again later." });
+    console.error("Forgot password email error:", error.message);
+    res.status(500).json({ message: "Error sending password reset OTP. Try again later." });
   }
 });
 
 // ─── Verify OTP ────────────────────────────────────────────────────────────
 const verifyOTP = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
-  const user = await db.user.findUnique({ where: { email } });
+  const normalizedEmail = email?.toLowerCase().trim();
+  const user = await db.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) return res.status(404).json({ message: "User not found" });
+
   const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
-  if (user.passwordResetOTP !== hashedOTP || (user.passwordResetExpires && Date.now() > user.passwordResetExpires)) {
+  if (!user.passwordResetOTP || user.passwordResetOTP !== hashedOTP || !user.passwordResetExpires || Date.now() > new Date(user.passwordResetExpires)) {
     return res.status(400).json({ message: "Invalid or expired OTP" });
   }
+
   res.status(200).json({ message: "OTP verified. You can now reset your password." });
 });
 
-// ─── Reset Password ────────────────────────────────────────────────────────
+// ─── Reset Password ────────────────────────────────────────────────────────────
 const resetPassword = asyncHandler(async (req, res) => {
-  const { email, newPassword } = req.body;
-  const user = await db.user.findUnique({ where: { email } });
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ message: "Email, OTP and new password are required." });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await db.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) return res.status(404).json({ message: "User not found" });
-  if (!newPassword) return res.status(400).json({ message: "New password is required" });
+
+  const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
+  if (!user.passwordResetOTP || user.passwordResetOTP !== hashedOTP || !user.passwordResetExpires || Date.now() > new Date(user.passwordResetExpires)) {
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+  }
+
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   await db.user.update({
-    where: { email },
-    data: { password: hashedPassword, passwordResetOTP: null, passwordResetExpires: null }
+    where: { email: normalizedEmail },
+    data: { password: hashedPassword, passwordResetOTP: null, passwordResetExpires: null },
   });
+
   res.status(200).json({ message: "Password reset successfully. You can now log in." });
 });
 
 // ─── Login ─────────────────────────────────────────────────────────────────
 const loginUserCtrl = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400);
-    throw new Error("Please provide email and password");
+  const normalizedEmail = email?.toLowerCase().trim();
+  if (!normalizedEmail || !password) {
+    return res.status(400).json({ message: "Please provide email and password" });
   }
-  const findUser = await db.user.findUnique({ where: { email } });
+
+  const findUser = await db.user.findUnique({ where: { email: normalizedEmail } });
   if (!findUser) {
-    res.status(401);
-    throw new Error("Invalid Credentials");
+    return res.status(401).json({ message: "Invalid Credentials" });
   }
   if (!findUser.isEmailVerified) {
-    res.status(401);
-    throw new Error("Please verify your email before logging in.");
+    return res.status(401).json({ message: "Please verify your email before logging in." });
   }
   if (!findUser.password || !(await bcrypt.compare(password, findUser.password))) {
-    res.status(401);
-    throw new Error("Invalid Credentials");
+    return res.status(401).json({ message: "Invalid Credentials" });
   }
 
   const refreshToken = await generateRefreshToken(findUser.id);
@@ -481,9 +547,9 @@ const getWishlist = asyncHandler(async (req, res) => {
        p."totalRating" AS "totalRating",
        p."createdAt" AS "createdAt",
        p."updatedAt" AS "updatedAt"
-     FROM "Wishlist" w
-     JOIN "Product" p ON p.id = w."productId"
-     WHERE w."userId" = $1
+     FROM "_Wishlist" w
+     JOIN "Product" p ON p.id = w."A"
+     WHERE w."B" = $1
      ORDER BY p."createdAt" DESC`,
     [userId],
   );
@@ -495,10 +561,10 @@ const addToWishlist = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
   if (!productId) return res.status(400).json({ message: "productId is required" });
   await db.query(
-    `INSERT INTO "Wishlist" ("userId", "productId")
+    `INSERT INTO "_Wishlist" ("A", "B")
      VALUES ($1, $2)
-     ON CONFLICT ("userId", "productId") DO NOTHING`,
-    [userId, productId],
+     ON CONFLICT DO NOTHING`,
+    [productId, userId],
   );
   res.status(201).json({ message: "Product added to wishlist successfully" });
 });
@@ -507,7 +573,7 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
   const { id: productId } = req.params;
   const userId = req.user?.id;
   await db.query(
-    `DELETE FROM "Wishlist" WHERE "userId" = $1 AND "productId" = $2`,
+    `DELETE FROM "_Wishlist" WHERE "B" = $1 AND "A" = $2`,
     [userId, productId],
   );
   res.json({ message: "Product removed from wishlist successfully" });
@@ -517,9 +583,12 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
 const userCart = asyncHandler(async (req, res) => {
   const { productId, color, quantity, price, selectedSize } = req.body;
   const userId = req.user?.id;
+  const cartId = uuidv4();
+  const dbColor = normalizeSelectedColor(color);
+  const dbSize = normalizeSelectedSize(selectedSize);
   const { rows } = await db.query(
-    `INSERT INTO "Cart" ("userId", "productId", "selectedColor", "selectedSize", quantity)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO "Cart" (id, "userId", "productId", "selectedColor", "selectedSize", quantity, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
      RETURNING
        id,
        "userId" AS "userId",
@@ -529,7 +598,7 @@ const userCart = asyncHandler(async (req, res) => {
        quantity,
        "createdAt" AS "createdAt",
        "updatedAt" AS "updatedAt"`,
-    [userId, productId, color || "default", selectedSize || "standard", Number.parseInt(quantity, 10) || 1],
+    [cartId, userId, productId, dbColor, dbSize, Number.parseInt(quantity, 10) || 1],
   );
   res.json(rows[0]);
 });

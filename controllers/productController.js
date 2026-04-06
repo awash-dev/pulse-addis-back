@@ -1072,10 +1072,10 @@ const addToWishlist = asyncHandler(async (req, res) => {
   }
 
   await db.query(
-    `INSERT INTO "Wishlist" ("userId", "productId")
+    `INSERT INTO "_Wishlist" ("A", "B")
      VALUES ($1, $2)
-     ON CONFLICT ("userId", "productId") DO NOTHING`,
-    [userId, productId],
+     ON CONFLICT DO NOTHING`,
+    [productId, userId],
   );
 
   res.status(201).json({ message: "Product added to wishlist successfully" });

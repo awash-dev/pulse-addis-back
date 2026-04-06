@@ -64,6 +64,7 @@ router.post("/register", createUser);
 router.post("/appRegister", createAppUser);
 router.post("/verify-email", verifyEmail);
 
+router.post("/forgot-password", forgotPassword);
 router.put("/ForgotPassword", forgotPassword);
 router.post("/verify-otp", verifyOTP);
 

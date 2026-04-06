@@ -27,14 +27,14 @@ const WISHLIST_SELECT = `
     p."totalRating" AS "totalRating",
     p."createdAt" AS "createdAt",
     p."updatedAt" AS "updatedAt"
-  FROM "Wishlist" w
-  JOIN "Product" p ON p.id = w."productId"
+  FROM "_Wishlist" w
+  JOIN "Product" p ON p.id = w."A"
 `;
 
 const getWishlistProducts = async (userId) => {
   const { rows } = await db.query(
     `${WISHLIST_SELECT}
-     WHERE w."userId" = $1
+     WHERE w."B" = $1
      ORDER BY p."createdAt" DESC`,
     [userId],
   );
@@ -63,10 +63,10 @@ const addToWishlist = asyncHandler(async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO "Wishlist" ("userId", "productId")
+      `INSERT INTO "_Wishlist" ("A", "B")
        VALUES ($1, $2)
-       ON CONFLICT ("userId", "productId") DO NOTHING`,
-      [userId, productId],
+       ON CONFLICT DO NOTHING`,
+      [productId, userId],
     );
 
     const wishlist = await getWishlistProducts(userId);
@@ -87,7 +87,7 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
     }
 
     await db.query(
-      `DELETE FROM "Wishlist" WHERE "userId" = $1 AND "productId" = $2`,
+      `DELETE FROM "_Wishlist" WHERE "B" = $1 AND "A" = $2`,
       [userId, productId],
     );
 
@@ -102,7 +102,7 @@ const getWishlistTotal = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.id;
     const { rows } = await db.query(
-      `SELECT COUNT(*)::int AS total FROM "Wishlist" WHERE "userId" = $1`,
+      `SELECT COUNT(*)::int AS total FROM "_Wishlist" WHERE "B" = $1`,
       [userId],
     );
 

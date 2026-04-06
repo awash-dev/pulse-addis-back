@@ -1,3 +1,4 @@
+const { v4: uuidv4 } = require("uuid");
 const db = require("../configure/dbClient.js");
 const asyncHandler = require("express-async-handler");
 
@@ -40,6 +41,34 @@ const CART_SELECT = `
   FROM "Cart" c
   JOIN "Product" p ON p.id = c."productId"
 `;
+
+const normalizeSelectedColor = (selectedColor) => {
+  if (typeof selectedColor === "string") {
+    return selectedColor;
+  }
+
+  if (!selectedColor) {
+    return "default";
+  }
+
+  return (
+    selectedColor.color?.title ||
+    selectedColor.title ||
+    selectedColor.label ||
+    selectedColor.value ||
+    selectedColor._id ||
+    selectedColor.id ||
+    "default"
+  );
+};
+
+const normalizeSelectedSize = (selectedSize) => {
+  if (typeof selectedSize === "string") {
+    return selectedSize;
+  }
+
+  return selectedSize ? String(selectedSize) : "standard";
+};
 
 const getCartRows = async (userId) => {
   const { rows } = await db.query(
@@ -92,8 +121,8 @@ const getCart = asyncHandler(async (req, res) => {
 
 const addToCart = asyncHandler(async (req, res) => {
   const { productId } = req.body;
-  const selectedColor = req.body.selectedColor || "default";
-  const selectedSize = req.body.selectedSize || "standard";
+  const selectedColor = normalizeSelectedColor(req.body.selectedColor);
+  const selectedSize = normalizeSelectedSize(req.body.selectedSize);
   const userId = req.user.id;
 
   if (!productId) {
@@ -128,9 +157,10 @@ const addToCart = asyncHandler(async (req, res) => {
       return res.status(200).json(rows[0]);
     }
 
+    const cartId = uuidv4();
     const { rows } = await db.query(
-      `INSERT INTO "Cart" ("userId", "productId", quantity, "selectedColor", "selectedSize")
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO "Cart" (id, "userId", "productId", quantity, "selectedColor", "selectedSize", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
        RETURNING
          id,
          "userId" AS "userId",
@@ -140,7 +170,7 @@ const addToCart = asyncHandler(async (req, res) => {
          "selectedSize" AS "selectedSize",
          "createdAt" AS "createdAt",
          "updatedAt" AS "updatedAt"`,
-      [userId, productId, 1, selectedColor, selectedSize],
+      [cartId, userId, productId, 1, selectedColor, selectedSize],
     );
 
     res.status(201).json(rows[0]);

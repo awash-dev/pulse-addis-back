@@ -27,7 +27,18 @@ if (connectionString) {
 }
 
 const pool = new Pool(poolConfig);
-const query = (text, params) => pool.query(text, params);
+const query = async (text, params) => {
+  try {
+    return await pool.query(text, params);
+  } catch (error) {
+    console.error("Database Query Error:", {
+      message: error.message,
+      sql: text,
+      params: params?.map(p => typeof p === 'string' && p.length > 50 ? p.slice(0, 50) + '...' : p)
+    });
+    throw error;
+  }
+};
 
 const modelTableMap = {
   user: "\"User\"",
@@ -146,15 +157,17 @@ const buildWhere = (modelName, where, params = [], prefix) => {
   const quoteColumn = (column) => `${prefixClause}${quoteIdentifier(column)}`;
 
   for (const [key, value] of Object.entries(where)) {
+    // Skip undefined values to avoid 'supplies X requires Y' mismatches
+    if (value === undefined) continue;
+
     if (key === "AND" || key === "OR") {
       if (!Array.isArray(value) || !value.length) continue;
-      const nestedClauses = value
-        .map((item) => {
-          const nested = buildWhere(modelName, item, params, prefix);
-          return nested.clause ? `(${nested.clause})` : "";
-        })
-        .filter(Boolean);
-      if (nestedClauses.length) clauses.push(nestedClauses.join(` ${key} `));
+      const nestedClauses = [];
+      for (const item of value) {
+        const nested = buildWhere(modelName, item, params, prefix);
+        if (nested.clause) nestedClauses.push(`(${nested.clause})`);
+      }
+      if (nestedClauses.length) clauses.push(`(${nestedClauses.join(` ${key} `)})`);
       continue;
     }
 
@@ -176,7 +189,16 @@ const buildWhere = (modelName, where, params = [], prefix) => {
         continue;
       }
 
+      // JSONB path/equals e.g. { path: ['Isread'], equals: false }
+      if (Array.isArray(value.path) && value.path.length > 0 && "equals" in value) {
+        const pathArr = value.path.map((p) => `'${p}'`).join(",");
+        clauses.push(`(${quoteColumn(key)} #>> ARRAY[${pathArr}])::text = $${params.length + 1}`);
+        params.push(String(value.equals));
+        continue;
+      }
+
       for (const [op, val] of Object.entries(value)) {
+        if (val === undefined) continue;
         switch (op) {
           case "gte":
             clauses.push(`${quoteColumn(key)} >= $${params.length + 1}`);
@@ -208,6 +230,7 @@ const buildWhere = (modelName, where, params = [], prefix) => {
             }
             break;
           default:
+            // Support simple equality if it's an operator we don't recognize or just a key
             clauses.push(`${quoteColumn(key)} = $${params.length + 1}`);
             params.push(val);
             break;
@@ -362,6 +385,9 @@ const getModel = (modelName) => {
   const flattenData = (data) => {
     const columns = {};
     for (const [key, value] of Object.entries(data)) {
+      if (key === "id" && (value === null || value === undefined)) {
+        continue;
+      }
       if (value && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
         if (value.connect) {
           const relation = relations[key];
@@ -459,21 +485,29 @@ const getModel = (modelName) => {
   };
 
   const update = async ({ where, data, include } = {}) => {
-    const { clause, params } = buildWhere(modelName, where, []);
     const updateData = flattenData(data);
     const updateKeys = Object.keys(updateData);
+    const updateParams = Object.values(updateData);
+
+    const { clause, params: finalParams } = buildWhere(modelName, where, [...updateParams]);
+
     if (!updateKeys.length) {
-      await applyNestedOperations(where.id, data, false);
-      const row = await query(`SELECT * FROM ${tableName} WHERE ${clause}`, params);
+      await applyNestedOperations(where?.id || where?._id, data, false);
+      const { clause: selectClause, params: selectParams } = buildWhere(modelName, where, []);
+      const row = await query(`SELECT * FROM ${tableName} WHERE ${selectClause}`, selectParams);
       return row.rows[0];
     }
+
     const setClauses = updateKeys.map((key, index) => `${quoteIdentifier(key)} = $${index + 1}`);
-    const updateParams = Object.values(updateData);
-    const sql = `UPDATE ${tableName} SET ${setClauses.join(", ")} WHERE ${clause} RETURNING *`;
-    const result = await query(sql, [...updateParams, ...params]);
+    const sql = `UPDATE ${tableName} SET ${setClauses.join(", ")}${clause ? ` WHERE ${clause}` : ""} RETURNING *`;
+    const result = await query(sql, finalParams);
     const row = result.rows[0];
-    await applyNestedOperations(row.id, data, false);
-    if (include) {
+
+    if (row?.id) {
+       await applyNestedOperations(row.id, data, false);
+    }
+
+    if (include && row) {
       const rows = await loadIncludes([row], modelName, include);
       return rows[0];
     }
@@ -520,13 +554,17 @@ const getModel = (modelName) => {
   };
 
   const updateMany = async ({ where, data } = {}) => {
-    const { clause, params } = buildWhere(modelName, where, []);
     const updateData = flattenData(data);
     const keys = Object.keys(updateData);
     if (!keys.length) return { count: 0 };
+    
+    // Pass existing update values as initial params to shift WHERE placeholders
+    const updateValues = Object.values(updateData);
+    const { clause, params: finalParams } = buildWhere(modelName, where, [...updateValues]);
+    
     const setClauses = keys.map((key, index) => `${quoteIdentifier(key)} = $${index + 1}`);
-    const sql = `UPDATE ${tableName} SET ${setClauses.join(", ")} ${clause ? `WHERE ${clause}` : ""}`;
-    const result = await query(sql, [...Object.values(updateData), ...params]);
+    const sql = `UPDATE ${tableName} SET ${setClauses.join(", ")}${clause ? ` WHERE ${clause}` : ""}`;
+    const result = await query(sql, finalParams);
     return { count: result.rowCount };
   };
 

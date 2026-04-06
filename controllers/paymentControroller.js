@@ -6,7 +6,7 @@ dotenv.config();
 
 const initializePayment = async (req, res) => {
   const {
-    totalPrice, currency, email, first_name, tx_ref,
+    totalPrice, amount, currency, email, first_name, tx_ref,
     last_name, phone_number, address, country, city,
     postalCode, totalPriceAfterDiscount, cart,
     prescriptionImages, prescriptionStatus
@@ -14,17 +14,38 @@ const initializePayment = async (req, res) => {
 
   const userId = req.user?.id || req.user?._id;
 
+  // Accept amount from either field; parse to proper float
+  const rawAmount = totalPrice ?? amount;
+  const parsedAmount = parseFloat(rawAmount);
+
+  // Round to 2 decimal places as Chapa requires and ensure minimum 1 ETB
+  const chapaAmount = Math.max(1, Math.round(parsedAmount * 100) / 100);
+
+  if (isNaN(chapaAmount) || chapaAmount < 1) {
+    return res.status(400).json({
+      message: `Invalid amount calculated: "${chapaAmount}". Amount must be >= 1 ETB.`,
+      debug: { rawAmount, parsedAmount }
+    });
+  }
+
   try {
     const chapaResponse = await axios.post("https://api.chapa.co/v1/transaction/initialize", {
-      amount: totalPrice,
+      amount: chapaAmount,
       currency: "ETB",
       tx_ref: tx_ref,
       callback_url: process.env.CHAPA_CALLBACK_URL,
       return_url: process.env.CHAPA_RETURN_URL,
-      first_name,
-      last_name,
+      first_name: first_name || "Customer",
+      last_name: last_name || ".",
       email,
-      phone_number
+      phone_number: (() => {
+        if (!phone_number) return "";
+        let cleaned = String(phone_number).replace(/[^\d+]/g, "");
+        if (cleaned.startsWith("+251")) cleaned = "0" + cleaned.slice(4);
+        else if (cleaned.startsWith("251") && cleaned.length > 9) cleaned = "0" + cleaned.slice(3);
+        if (/^[79]\d{8}$/.test(cleaned)) cleaned = "0" + cleaned;
+        return cleaned;
+      })()
     }, {
       headers: {
         Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
@@ -36,10 +57,10 @@ const initializePayment = async (req, res) => {
       // Build order items from cart
       const items = Array.isArray(cart)
         ? cart.map(item => ({
-            productId: item.productId || item._id,
+            productId: item.productId || item.product || item._id,
             colorId: item.colorId || null,
             quantity: item.quantity || 1,
-            price: item.price || 0,
+            price: parseFloat(item.price) || 0,
             size: item.size || item.selectedSize || "standard"
           }))
         : [];
@@ -47,8 +68,8 @@ const initializePayment = async (req, res) => {
       const newOrder = await db.order.create({
         data: {
           userId,
-          firstName: first_name,
-          lastName: last_name,
+          firstName: first_name || "Customer",
+          lastName: last_name || ".",
           email,
           phone: phone_number,
           address: address || "",
@@ -56,8 +77,8 @@ const initializePayment = async (req, res) => {
           country: country || "Ethiopia",
           postalCode: parseInt(postalCode) || 0,
           txRef: tx_ref,
-          totalPrice: parseFloat(totalPrice),
-          totalPriceAfterDiscount: parseFloat(totalPriceAfterDiscount || totalPrice),
+          totalPrice: chapaAmount,
+          totalPriceAfterDiscount: parseFloat(totalPriceAfterDiscount || rawAmount) || chapaAmount,
           prescriptionImages: prescriptionImages || [],
           prescriptionStatus: prescriptionStatus || "not_required",
           status: "pending",
@@ -86,6 +107,7 @@ const initializePayment = async (req, res) => {
     res.status(500).json({ message: "Payment failed", error: error.response ? error.response.data : error.message });
   }
 };
+
 
 const verifyPayment = async (req, res) => {
   const { tx_ref } = req.query;
