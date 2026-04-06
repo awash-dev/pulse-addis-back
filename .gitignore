@@ -1,0 +1,13 @@
+node_modules
+.env
+.vscode/
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+backend.zip
+uploads/
+upload/

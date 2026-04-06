@@ -1,0 +1,397 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  superAdmin
+  admin
+  merchant
+  deliveryBoy
+  user
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum OrderStatus {
+  pending
+  assigned
+  active
+  delivered
+}
+
+enum PrescriptionStatus {
+  not_required
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id                      String    @id @default(uuid())
+  firstname               String
+  lastname                String
+  username                String?
+  email                   String    @unique
+  mobile                  String    @unique
+  password                String
+  role                    Role      @default(user)
+  isActive                Boolean   @default(true)
+  isBlocked               Boolean   @default(false)
+  isEmailVerified         Boolean   @default(false)
+  address                 String?
+  profilePictures         Json?
+  emailVerificationOTP    String?
+  emailVerificationExpires DateTime?
+  passwordResetOTP        String?
+  passwordResetExpires    DateTime?
+  refreshToken            String?
+  passwordChangedAt       DateTime?
+  passwordResetToken      String?
+
+  googleId                String?   @unique
+  facebookId              String?   @unique
+  provider                String?
+
+  products                Product[] @relation("PostedBy")
+  orders                  Order[]   @relation("UserOrders")
+  wishlist                Product[] @relation("Wishlist")
+  assignedOrders          Order[]   @relation("AssignedTo")
+  reviews                 Review[]
+  notifications           Notification[]
+  activities              Activity[]
+  chatMessages            Message[]
+  conversations           Conversation[] @relation("UserConversations")
+  stores                  Store[]
+  carts                   Cart[]
+  deliveryAssignments     DeliveryAssignment[]
+  reports                 Report[]
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
+model Product {
+  id                   String         @id @default(uuid())
+  title                String
+  slug                 String         @unique
+  description          String
+  price                Float
+  oldPrice             Float?         @default(100.0)
+  category             String
+  subcategory          String
+  brand                String
+  quantity             Int
+  sold                 Int            @default(0)
+  postedByUserId       String
+  postedBy             User           @relation("PostedBy", fields: [postedByUserId], references: [id])
+  storeId              String
+  store                Store          @relation(fields: [storeId], references: [id])
+  status               ApprovalStatus @default(pending)
+  rejectionReason      Json?
+  images               Json?
+
+  strength             String?
+  requiresPrescription Boolean        @default(false)
+  prescriptionPlans    Json?
+
+  tags                 String[]
+  discount             Int?           @default(0)
+  totalRating          Float          @default(0)
+
+  colors               ProductColor[]
+  reviews              Review[]
+  orderItems           OrderItem[]
+  wishlistedBy         User[]         @relation("Wishlist")
+  carts                Cart[]
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+}
+
+model Store {
+  id          String    @id @default(uuid())
+  storeId     String?   @unique
+  storeName   String
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  address     String
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ProductColor {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  colorId   String
+  color     Color    @relation(fields: [colorId], references: [id])
+  images    Json?
+}
+
+model Color {
+  id            String         @id @default(uuid())
+  name          String
+  code          String?
+  productColors ProductColor[]
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id                      String             @id @default(uuid())
+  userId                  String
+  user                    User               @relation("UserOrders", fields: [userId], references: [id])
+  firstName               String
+  lastName                String
+  email                   String
+  phone                   String
+  address                 String
+  city                    String
+  country                 String
+  postalCode              Int
+  txRef                   String?
+  paymentInfo             Json?
+  paidAt                  DateTime?          @default(now())
+  totalPrice              Float
+  totalPriceAfterDiscount Float
+  status                  OrderStatus        @default(pending)
+  assignedToId            String?
+  assignedTo              User?              @relation("AssignedTo", fields: [assignedToId], references: [id])
+  prescriptionStatus      PrescriptionStatus @default(not_required)
+  prescriptionImages      Json?
+  month                   Int                @default(0)
+  items                   OrderItem[]
+
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  colorId   String?
+  quantity  Int
+  price     Float
+  size      String
+}
+
+model Cart {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  quantity      Int      @default(1)
+  selectedColor String
+  selectedSize  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Category {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Subcategory {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Brand {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Tag {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Size {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  details   Json?
+  createdAt DateTime @default(now())
+}
+
+model Blog {
+  id             String         @id @default(uuid())
+  title          String
+  slug           String         @unique
+  content        String
+  category       String
+  subcategory    String?
+  description    String?
+  isPopup        Boolean        @default(false)
+  author         String
+  images         Json?
+  numViews       Int            @default(0)
+  isLiked        Boolean        @default(false)
+  isDisliked     Boolean        @default(false)
+  likes          Json?
+  dislikes       Json?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model BlogCategory {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model BlogSubCategory {
+  id    String @id @default(uuid())
+  name  String @unique
+}
+
+model Conversation {
+  id        String    @id @default(uuid())
+  users     User[]    @relation("UserConversations")
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  text           String
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Coupon {
+  id       String   @id @default(uuid())
+  name     String   @unique
+  expiry   DateTime
+  discount Int
+}
+
+model FQA {
+  id       String @id @default(uuid())
+  question String
+  answer   String
+}
+
+model DeliveryAssignment {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  orderId   String
+  status    String   @default("assigned")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Package {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  price       Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model HealthAdvice {
+  id            String   @id @default(uuid())
+  conditionName String
+  healthAdvice  String
+  keySymptoms   Json?    @default("[]")
+  author        String?  @default("Pulse Admin")
+  image         Json?    // { secure_url, id }
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Promotion {
+  id        String   @id @default(uuid())
+  title     String
+  image     String
+  link      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  description String
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdHome {
+  id        String   @id @default(uuid())
+  title     String
+  image     String
+  link      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SpecialAd {
+  id          String   @id @default(uuid())
+  title       String
+  image       String
+  link        String?
+  discount    Int?     @default(0)
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BannerAd {
+  id        String   @id @default(uuid())
+  title     String
+  image     String
+  link      String?
+  position  String?  @default("top")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

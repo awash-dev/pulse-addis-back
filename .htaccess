@@ -1,0 +1,16 @@
+# Start cPanel Node.js Redirect Configuration
+RewriteEngine On
+
+# 1. Force HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# 2. Reverse Proxy to Node.js App on Port 4000
+# Ensure your app is actually running on port 4000 in the background
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ http://127.0.0.1:4000/$1 [P,L]
+
+# Optional: Set environment to production if needed
+# SetEnv NODE_ENV production
+# End cPanel Configuration
