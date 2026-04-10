@@ -50,27 +50,30 @@ const getallAdminActivity = asyncHandler(async (req, res) => {
 });
 
 const getAllActivityByRole = asyncHandler(async (req, res) => {
+  const { role } = req.params;
+
+  if (!role) {
+    return res.status(400).json({ message: "Role parameter is required." });
+  }
+
   try {
-    const { role } = req.params;
+    // Using raw SQL to join with User table for role filtering
+    const result = await db.query(
+      `SELECT a.*, u.firstname, u.lastname 
+       FROM "Activity" a 
+       JOIN "User" u ON u.id = a."userId" 
+       WHERE u.role = $1 
+       ORDER BY a."createdAt" DESC`,
+      [role]
+    );
 
-    if (!role) {
-      return res.status(400).json({ message: "Role parameter is required." });
-    }
-
-    const activities = await db.activity.findMany({
-        where: {
-            user: { role: role }
-        },
-        include: {
-            user: {
-                select: {
-                    firstname: true,
-                    lastname: true
-                }
-            }
-        },
-        orderBy: { createdAt: 'desc' }
-    });
+    const activities = result.rows.map(row => ({
+      ...row,
+      user: {
+        firstname: row.firstname,
+        lastname: row.lastname
+      }
+    }));
 
     if (!activities.length) {
       return res.status(404).json({ message: `No activities found for role: ${role}` });

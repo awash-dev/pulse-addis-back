@@ -11,3 +11,8 @@ node_modules
 backend.zip
 uploads/
 upload/
+user.txt
+exports/
+exportData.js
+exportUsers.js
+importData.js

@@ -30,6 +30,7 @@ const allowedOrigins = [
   "http://app.pulseaddis.com",
   "http://api.pulseaddis.com",
   "https://www.pulseaddis.com",
+  "http://localhost:3002"
 ];
 
 app.use(

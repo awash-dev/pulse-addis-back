@@ -713,6 +713,8 @@ const createOrder = asyncHandler(async (req, res) => {
       prescriptionStatus: prescriptionStatus || "not_required",
       status: "pending",
       month: new Date().getMonth() + 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
       items: { create: items }
     }
   });

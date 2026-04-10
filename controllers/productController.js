@@ -81,7 +81,7 @@ const hydrateProducts = async (products, { includeReviews = false } = {}) => {
 
   if (storeIds.length > 0) {
     const { rows } = await db.query(
-      `${STORE_SELECT} WHERE id = ANY($1::text[])`,
+      `${STORE_SELECT} WHERE id = ANY($1::uuid[])`,
       [storeIds],
     );
 
@@ -102,7 +102,7 @@ const hydrateProducts = async (products, { includeReviews = false } = {}) => {
          c.code AS "colorCode"
        FROM "ProductColor" pc
        JOIN "Color" c ON c.id = pc."colorId"
-       WHERE pc."productId" = ANY($1::text[])
+       WHERE pc."productId" = ANY($1::uuid[])
        ORDER BY c.name ASC, pc.id ASC`,
       [productIds],
     );
@@ -145,7 +145,7 @@ const hydrateProducts = async (products, { includeReviews = false } = {}) => {
          u."profilePictures" AS "profilePictures"
        FROM "Review" r
        JOIN "User" u ON u.id = r."userId"
-       WHERE r."productId" = ANY($1::text[])
+       WHERE r."productId" = ANY($1::uuid[])
        ORDER BY r."createdAt" DESC`,
       [productIds],
     );

@@ -1,5 +1,6 @@
 const { Pool } = require("pg");
 const { URL } = require("url");
+const { v4: uuidv4 } = require("uuid");
 
 const connectionString = process.env.DATABASE_URL;
 const poolConfig = {};
@@ -396,7 +397,7 @@ const getModel = (modelName) => {
           }
           continue;
         }
-        if (value.disconnect || value.set) {
+        if (value.create || value.disconnect || value.set) {
           continue;
         }
       }
@@ -407,6 +408,9 @@ const getModel = (modelName) => {
 
   const buildInsert = (data) => {
     const columns = flattenData(data);
+    if (!Object.prototype.hasOwnProperty.call(columns, "id")) {
+      columns.id = uuidv4();
+    }
     const keys = Object.keys(columns);
     const params = Object.values(columns);
     const columnsSql = keys.map((key) => quoteIdentifier(key)).join(", ");
