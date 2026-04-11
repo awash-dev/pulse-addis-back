@@ -76,7 +76,7 @@ const getAllActivityByRole = asyncHandler(async (req, res) => {
     }));
 
     if (!activities.length) {
-      return res.status(404).json({ message: `No activities found for role: ${role}` });
+      return res.status(200).json([]);
     }
 
     res.json(activities);
@@ -104,7 +104,7 @@ const getAdminActivity = asyncHandler(async (req, res) => {
     });
 
     if (!activities.length) {
-      return res.status(404).json({ message: "No activity found for this user" });
+      return res.status(200).json({ activityLogs: [] });
     }
 
     res.status(200).json({ activityLogs: activities });
@@ -124,7 +124,7 @@ const getAllActivity = asyncHandler(async (req, res) => {
     });
 
     if (activities.length === 0) {
-      return res.status(404).json({ message: "No activity found" });
+      return res.status(200).json({ activityLogs: [] });
     }
 
     res.status(200).json({ activityLogs: activities });
