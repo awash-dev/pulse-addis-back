@@ -4,7 +4,7 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "start": "node index.js",
+    "start": "NODE_OPTIONS='--no-experimental-fetch' node index.js",
     "dev": "nodemon index.js",
     "export-data": "node exportData.js"
   },
