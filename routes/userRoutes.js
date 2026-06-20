@@ -40,7 +40,8 @@ const {
   changePassword,
   getUsersByRole,
   getUserCount,
-
+  toggleEmailVerification,
+  toggleB2bAccess,
 } = require("../controllers/userController");
 const { authMiddleware, isAdmin, isSuperAdminOrAdmin, isAdminSuperAdminOrMerchant, isSuperAdminOrMerchant } = require("../middlewares/authMiddleware");
 //const { checkout, paymentVerification } = require("../controller/paymentCtrl");
@@ -106,6 +107,8 @@ router.put("/edit-user", authMiddleware, updatedUser);
 router.put("/save-address", authMiddleware, saveAddress);
 router.put("/block-user/:id", authMiddleware, isAdmin, blockUser);
 router.put("/unblock-user/:id", authMiddleware, isAdmin, unblockUser);
+router.put("/toggle-email-verification/:id", authMiddleware, isAdmin, toggleEmailVerification);
+router.put("/toggle-b2b/:id", authMiddleware, isAdmin, toggleB2bAccess);
 
 router.get("/:id", getaUser);
 router.put("/:id", updatedUser);

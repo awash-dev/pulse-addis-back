@@ -93,6 +93,7 @@ const PackageRoute = require("./routes/packageRouter");
 const ChatRoutes = require("./routes/chatroutes");
 const HealthAdviceRouter = require("./routes/healthAdvice");
 const AdRouter = require("./routes/adRoutes");
+const B2bRouter = require("./routes/b2bRoutes");
 
 // 3. Database Connection Check
 db.pool.connect()
@@ -107,7 +108,7 @@ db.pool.connect()
 // 6. Healthy Check / Root Route (Explicit Content-Type for cPanel Recognition)
 app.get("/", (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.status(200).send("👀 Pulse Addis API is LIVE! Connection established.");
+  res.status(200).send("Pulse Addis API is LIVE! Connection established.");
 });
 
 // 7. API Routes
@@ -142,6 +143,7 @@ app.use("/api/chat", ChatRoutes);
 app.use("/api/message", MessageRouter);
 app.use("/api/health-advice", HealthAdviceRouter);
 app.use("/api/ads", AdRouter);
+app.use("/api/b2b", B2bRouter);
 
 // 8. Serve Static Files / React Build
 const buildPath = path.join(__dirname, "build");
@@ -213,12 +215,25 @@ const io = require("socket.io")(server, {
   cors: { origin: "*", methods: ["GET", "POST"], credentials: true },
 });
 
+// Make io available to controllers for real-time emits
+const { setIo } = require("./utils/socketEmitter");
+setIo(io);
+
 io.on("connection", (socket) => {
   socket.on("setup", (userData) => {
-    socket.join(userData._id);
+    if (!userData || !userData._id) return;
+    socket.join(`user:${userData._id}`);
+    socket.join("b2b:buyers");
+    if (["admin", "superAdmin"].includes(userData.role)) {
+      socket.join("admin");
+    }
     socket.emit("connected");
   });
+
   socket.on("join chat", (room) => socket.join(room));
+
+  socket.on("join room", (room) => socket.join(room));
+
   socket.on("new message", (newMessageRec) => {
     const chat = newMessageRec.chat;
     if (!chat || !chat.users) return;

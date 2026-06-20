@@ -63,6 +63,8 @@ const USER_PUBLIC_FIELDS = `
   "isActive" AS "isActive",
   "isBlocked" AS "isBlocked",
   "isEmailVerified" AS "isEmailVerified",
+  "customerType" AS "customerType",
+  "isVerified" AS "isVerified",
   address,
   "profilePictures" AS "profilePictures",
   "createdAt" AS "createdAt",
@@ -828,6 +830,61 @@ const getUserCount = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: { merchant, admin, deliveryBoy, user } });
 });
 
+// ─── Toggle Email Verification (Admin / SuperAdmin) ────────────────────────
+const toggleEmailVerification = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { rows: current } = await db.query(
+    `SELECT "isEmailVerified" FROM "User" WHERE id = $1`,
+    [id]
+  );
+  if (!current[0]) return res.status(404).json({ message: "User not found" });
+  const newVal = !current[0].isEmailVerified;
+  const { rows } = await db.query(
+    `UPDATE "User" SET "isEmailVerified" = $2, "updatedAt" = NOW()
+     WHERE id = $1
+     RETURNING ${USER_PUBLIC_FIELDS}`,
+    [id, newVal]
+  );
+  res.json({ success: true, isEmailVerified: newVal, user: mapPublicUser(rows[0]) });
+});
+
+// ─── Toggle B2B Access (Admin / SuperAdmin) ─────────────────────────────────
+// Sets customerType to the given type (default 'HOSPITAL') to enable B2B, or NULL to disable.
+const toggleB2bAccess = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { customerType: requestedType } = req.body;
+
+  const validTypes = [
+    "HOSPITAL", "CLINIC", "PHARMACY", "MEDICAL_LABORATORY", "ICU_CRITICAL_CARE",
+    "NGO", "GOVERNMENT_HEALTH_FACILITY", "MEDICAL_EQUIPMENT_DEALER", "DISTRIBUTOR"
+  ];
+
+  const { rows: current } = await db.query(
+    `SELECT "customerType", "isVerified" FROM "User" WHERE id = $1`,
+    [id]
+  );
+  if (!current[0]) return res.status(404).json({ message: "User not found" });
+
+  const isCurrentlyB2b = current[0].customerType !== null;
+
+  if (isCurrentlyB2b) {
+    // Disable B2B: clear customerType and reset isVerified
+    await db.query(
+      `UPDATE "User" SET "customerType" = NULL, "isVerified" = false, "updatedAt" = NOW() WHERE id = $1`,
+      [id]
+    );
+    res.json({ success: true, b2bEnabled: false, message: "B2B access disabled" });
+  } else {
+    // Enable B2B: set customerType and mark as verified
+    const typeToSet = validTypes.includes(requestedType) ? requestedType : "HOSPITAL";
+    await db.query(
+      `UPDATE "User" SET "customerType" = $2::"CustomerType", "isVerified" = true, "updatedAt" = NOW() WHERE id = $1`,
+      [id, typeToSet]
+    );
+    res.json({ success: true, b2bEnabled: true, customerType: typeToSet, message: "B2B access enabled" });
+  }
+});
+
 module.exports = {
   createUser, createAppUser, verifyEmail, forgotPassword, verifyOTP,
   resetPassword, loginUserCtrl, getallUser, getaUser, deleteaUser,
@@ -837,5 +894,6 @@ module.exports = {
   getMyOrders, emptyCart, getMonthWiseOrderIncome, getAllOrders, getsingleOrder,
   updateOrder, getYearlyTotalOrder, removeProductFromCart, updateProductQuantityFromCart,
   getDeliveryBoys, assignOrderToDeliveryBoy, updateDeliveryBoy, deleteDeliveryBoy,
-  changePassword, getUsersByRole, getUserCount
+  changePassword, getUsersByRole, getUserCount,
+  toggleEmailVerification, toggleB2bAccess
 };

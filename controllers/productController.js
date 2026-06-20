@@ -27,7 +27,35 @@ const PRODUCT_SELECT = `
     p.discount,
     p."totalRating" AS "totalRating",
     p."createdAt" AS "createdAt",
-    p."updatedAt" AS "updatedAt"
+    p."updatedAt" AS "updatedAt",
+    p."genericName" AS "genericName",
+    p."brandName" AS "brandName",
+    p.sku,
+    p.barcode,
+    p."registrationNumber" AS "registrationNumber",
+    p."regulatoryAuthority" AS "regulatoryAuthority",
+    p."rxClass" AS "rxClass",
+    p.certificates,
+    p."certificateExpiryDate" AS "certificateExpiryDate",
+    p."countryOfOrigin" AS "countryOfOrigin",
+    p."unitOfSale" AS "unitOfSale",
+    p."minimumOrderQuantity" AS "minimumOrderQuantity",
+    p."caseQuantity" AS "caseQuantity",
+    p."wholesalePrice" AS "wholesalePrice",
+    p."tierPricing" AS "tierPricing",
+    p."requestForQuoteEnabled" AS "requestForQuoteEnabled",
+    p."taxRate" AS "taxRate",
+    p."warehouseLocation" AS "warehouseLocation",
+    p."batchNumber" AS "batchNumber",
+    p."lotNumber" AS "lotNumber",
+    p."manufacturingDate" AS "manufacturingDate",
+    p."expiryDate" AS "expiryDate",
+    p."reorderLevel" AS "reorderLevel",
+    p."availabilityStatus" AS "availabilityStatus",
+    p.documents,
+    p."categoryMetadata" AS "categoryMetadata",
+    p."b2bCategory" AS "b2bCategory",
+    p."sourceRfqId" AS "sourceRfqId"
   FROM "Product" p
 `;
 
@@ -208,6 +236,55 @@ const filterValidColorPairs = (colorImagePairs) =>
       )
     : [];
 
+/* ── B2B field normalizers ── */
+const parseOptionalFloat = (val, fallback = null) => {
+  if (val === undefined || val === null || val === "") return fallback;
+  const parsed = Number.parseFloat(val);
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
+
+const parseOptionalInt = (val, fallback = null) => {
+  if (val === undefined || val === null || val === "") return fallback;
+  const parsed = Number.parseInt(val, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
+
+const parseOptionalDate = (val, fallback = null) => {
+  if (!val) return fallback;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+};
+
+const normalizeTierPricing = (tiers) => {
+  if (!Array.isArray(tiers)) return [];
+  return tiers
+    .filter((t) => t && !Number.isNaN(Number.parseInt(t.minQty, 10)) && !Number.isNaN(Number.parseFloat(t.price)))
+    .map((t) => ({
+      minQty: Number.parseInt(t.minQty, 10),
+      price: Number.parseFloat(t.price),
+    }))
+    .sort((a, b) => a.minQty - b.minQty);
+};
+
+const toJsonb = (val) => {
+  if (val === undefined || val === null) return null;
+  if (typeof val === "string") {
+    try {
+      JSON.parse(val);
+      return val;
+    } catch {
+      return JSON.stringify(val);
+    }
+  }
+  return JSON.stringify(val);
+};
+
+const computeAvailabilityStatus = (quantity, reorderLevel) => {
+  if (quantity <= 0) return "OUT_OF_STOCK";
+  if (reorderLevel > 0 && quantity <= reorderLevel) return "LOW_STOCK";
+  return "IN_STOCK";
+};
+
 const insertProductColors = async (client, productId, colorImagePairs) => {
   const validPairs = filterValidColorPairs(colorImagePairs);
 
@@ -215,7 +292,7 @@ const insertProductColors = async (client, productId, colorImagePairs) => {
     await client.query(
       `INSERT INTO "ProductColor" ("productId", "colorId", images)
        VALUES ($1, $2, $3)`,
-      [productId, pair.color, pair.images],
+      [productId, pair.color, toJsonb(pair.images)],
     );
   }
 };
@@ -586,6 +663,34 @@ const createProduct = asyncHandler(async (req, res) => {
     tags,
     colorImagePairs,
     prescriptionPlans,
+    // B2B / wholesale fields
+    genericName,
+    brandName,
+    sku,
+    barcode,
+    registrationNumber,
+    regulatoryAuthority,
+    rxClass,
+    certificates,
+    certificateExpiryDate,
+    countryOfOrigin,
+    unitOfSale,
+    minimumOrderQuantity,
+    caseQuantity,
+    wholesalePrice,
+    tierPricing,
+    requestForQuoteEnabled,
+    taxRate,
+    warehouseLocation,
+    batchNumber,
+    lotNumber,
+    manufacturingDate,
+    expiryDate,
+    reorderLevel,
+    availabilityStatus,
+    documents,
+    categoryMetadata,
+    b2bCategory,
   } = req.body;
 
   let slug = req.body.slug;
@@ -597,6 +702,10 @@ const createProduct = asyncHandler(async (req, res) => {
   if (!postedByUserId) {
     return res.status(401).json({ message: "Authentication required to create a product." });
   }
+
+  const qty = Number.parseInt(quantity, 10) || 0;
+  const rLevel = parseOptionalInt(reorderLevel, 0);
+  const computedStatus = availabilityStatus || computeAvailabilityStatus(qty, rLevel);
 
   const client = await db.pool.connect();
 
@@ -621,11 +730,42 @@ const createProduct = asyncHandler(async (req, res) => {
          "requiresPrescription",
          tags,
          "prescriptionPlans",
-         images
+         images,
+         "genericName",
+         "brandName",
+         sku,
+         barcode,
+         "registrationNumber",
+         "regulatoryAuthority",
+         "rxClass",
+         certificates,
+         "certificateExpiryDate",
+         "countryOfOrigin",
+         "unitOfSale",
+         "minimumOrderQuantity",
+         "caseQuantity",
+         "wholesalePrice",
+         "tierPricing",
+         "requestForQuoteEnabled",
+         "taxRate",
+         "warehouseLocation",
+         "batchNumber",
+         "lotNumber",
+         "manufacturingDate",
+         "expiryDate",
+         "reorderLevel",
+         "availabilityStatus",
+         documents,
+         "categoryMetadata",
+         "b2bCategory"
        )
        VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8, $9,
-         $10, $11, $12, $13, $14, $15, $16, $17
+         $10, $11, $12::approvalstatus, $13, $14, $15, $16, $17,
+         $18, $19, $20, $21, $22, $23, $24::"RxClass", $25,
+         $26, $27, $28, $29, $30, $31, $32, $33,
+         $34, $35, $36, $37, $38, $39, $40, $41::"AvailabilityStatus",
+         $42, $43, $44::"B2bProductCategory"
        )
        RETURNING id`,
       [
@@ -637,15 +777,42 @@ const createProduct = asyncHandler(async (req, res) => {
         category || "",
         subcategory || "",
         brand || "",
-        Number.parseInt(quantity, 10) || 0,
+        qty,
         postedByUserId,
         store,
         "pending",
         strength || "",
         requiresPrescription === "true" || requiresPrescription === true,
         Array.isArray(tags) ? tags : [],
-        prescriptionPlans || [],
-        extractProductImages(colorImagePairs),
+        toJsonb(prescriptionPlans || []),
+        toJsonb(extractProductImages(colorImagePairs)),
+        genericName || null,
+        brandName || null,
+        sku || null,
+        barcode || null,
+        registrationNumber || null,
+        regulatoryAuthority || null,
+        rxClass || null,
+        toJsonb(certificates),
+        parseOptionalDate(certificateExpiryDate),
+        countryOfOrigin || null,
+        unitOfSale || null,
+        parseOptionalInt(minimumOrderQuantity, 1),
+        parseOptionalInt(caseQuantity),
+        parseOptionalFloat(wholesalePrice),
+        toJsonb(normalizeTierPricing(tierPricing)),
+        requestForQuoteEnabled === true || requestForQuoteEnabled === "true",
+        parseOptionalFloat(taxRate, 0),
+        warehouseLocation || null,
+        batchNumber || null,
+        lotNumber || null,
+        parseOptionalDate(manufacturingDate),
+        parseOptionalDate(expiryDate),
+        rLevel,
+        computedStatus,
+        toJsonb(documents),
+        toJsonb(categoryMetadata),
+        b2bCategory || null,
       ],
     );
 
@@ -655,6 +822,14 @@ const createProduct = asyncHandler(async (req, res) => {
     await client.query("COMMIT");
 
     const newProduct = await getProductById(productId);
+
+    // Notify admins and B2B buyers about the new product
+    const { emitToAdmins, emitToB2bBuyers } = require("../utils/socketEmitter");
+    emitToAdmins("product:updated", { action: "created", product: newProduct });
+    if (newProduct.b2bCategory || newProduct.wholesalePrice) {
+      emitToB2bBuyers("product:updated", { action: "created", product: newProduct });
+    }
+
     res.json(newProduct);
   } catch (error) {
     await client.query("ROLLBACK");
@@ -728,6 +903,34 @@ const updateProduct = asyncHandler(async (req, res) => {
     tags,
     colorImagePairs,
     prescriptionPlans,
+    // B2B / wholesale fields
+    genericName,
+    brandName,
+    sku,
+    barcode,
+    registrationNumber,
+    regulatoryAuthority,
+    rxClass,
+    certificates,
+    certificateExpiryDate,
+    countryOfOrigin,
+    unitOfSale,
+    minimumOrderQuantity,
+    caseQuantity,
+    wholesalePrice,
+    tierPricing,
+    requestForQuoteEnabled,
+    taxRate,
+    warehouseLocation,
+    batchNumber,
+    lotNumber,
+    manufacturingDate,
+    expiryDate,
+    reorderLevel,
+    availabilityStatus,
+    documents,
+    categoryMetadata,
+    b2bCategory,
   } = req.body;
 
   const client = await db.pool.connect();
@@ -736,7 +939,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     await client.query("BEGIN");
 
     const { rows: existingRows } = await client.query(
-      `SELECT id FROM "Product" WHERE id = $1 LIMIT 1`,
+      `SELECT id, quantity, "reorderLevel" FROM "Product" WHERE id = $1 LIMIT 1`,
       [id],
     );
 
@@ -808,21 +1011,144 @@ const updateProduct = asyncHandler(async (req, res) => {
       updates.push(`tags = $${values.length}`);
     }
     if (prescriptionPlans !== undefined) {
-      values.push(prescriptionPlans);
+      values.push(toJsonb(prescriptionPlans));
       updates.push(`"prescriptionPlans" = $${values.length}`);
+    }
+
+    // B2B fields
+    if (genericName !== undefined) {
+      values.push(genericName || null);
+      updates.push(`"genericName" = $${values.length}`);
+    }
+    if (brandName !== undefined) {
+      values.push(brandName || null);
+      updates.push(`"brandName" = $${values.length}`);
+    }
+    if (sku !== undefined) {
+      values.push(sku || null);
+      updates.push(`sku = $${values.length}`);
+    }
+    if (barcode !== undefined) {
+      values.push(barcode || null);
+      updates.push(`barcode = $${values.length}`);
+    }
+    if (registrationNumber !== undefined) {
+      values.push(registrationNumber || null);
+      updates.push(`"registrationNumber" = $${values.length}`);
+    }
+    if (regulatoryAuthority !== undefined) {
+      values.push(regulatoryAuthority || null);
+      updates.push(`"regulatoryAuthority" = $${values.length}`);
+    }
+    if (rxClass !== undefined) {
+      values.push(rxClass || null);
+      updates.push(`"rxClass" = $${values.length}::"RxClass"`);
+    }
+    if (certificates !== undefined) {
+      values.push(toJsonb(certificates));
+      updates.push(`certificates = $${values.length}`);
+    }
+    if (certificateExpiryDate !== undefined) {
+      values.push(parseOptionalDate(certificateExpiryDate));
+      updates.push(`"certificateExpiryDate" = $${values.length}`);
+    }
+    if (countryOfOrigin !== undefined) {
+      values.push(countryOfOrigin || null);
+      updates.push(`"countryOfOrigin" = $${values.length}`);
+    }
+    if (unitOfSale !== undefined) {
+      values.push(unitOfSale || null);
+      updates.push(`"unitOfSale" = $${values.length}`);
+    }
+    if (minimumOrderQuantity !== undefined && minimumOrderQuantity !== "") {
+      values.push(parseOptionalInt(minimumOrderQuantity, 1));
+      updates.push(`"minimumOrderQuantity" = $${values.length}`);
+    }
+    if (caseQuantity !== undefined && caseQuantity !== "") {
+      values.push(parseOptionalInt(caseQuantity));
+      updates.push(`"caseQuantity" = $${values.length}`);
+    }
+    if (wholesalePrice !== undefined && wholesalePrice !== "") {
+      values.push(parseOptionalFloat(wholesalePrice));
+      updates.push(`"wholesalePrice" = $${values.length}`);
+    }
+    if (tierPricing !== undefined) {
+      values.push(toJsonb(normalizeTierPricing(tierPricing)));
+      updates.push(`"tierPricing" = $${values.length}`);
+    }
+    if (requestForQuoteEnabled !== undefined) {
+      values.push(requestForQuoteEnabled === true || requestForQuoteEnabled === "true");
+      updates.push(`"requestForQuoteEnabled" = $${values.length}`);
+    }
+    if (taxRate !== undefined && taxRate !== "") {
+      values.push(parseOptionalFloat(taxRate, 0));
+      updates.push(`"taxRate" = $${values.length}`);
+    }
+    if (warehouseLocation !== undefined) {
+      values.push(warehouseLocation || null);
+      updates.push(`"warehouseLocation" = $${values.length}`);
+    }
+    if (batchNumber !== undefined) {
+      values.push(batchNumber || null);
+      updates.push(`"batchNumber" = $${values.length}`);
+    }
+    if (lotNumber !== undefined) {
+      values.push(lotNumber || null);
+      updates.push(`"lotNumber" = $${values.length}`);
+    }
+    if (manufacturingDate !== undefined) {
+      values.push(parseOptionalDate(manufacturingDate));
+      updates.push(`"manufacturingDate" = $${values.length}`);
+    }
+    if (expiryDate !== undefined) {
+      values.push(parseOptionalDate(expiryDate));
+      updates.push(`"expiryDate" = $${values.length}`);
+    }
+    if (reorderLevel !== undefined && reorderLevel !== "") {
+      values.push(parseOptionalInt(reorderLevel, 0));
+      updates.push(`"reorderLevel" = $${values.length}`);
+    }
+    if (documents !== undefined) {
+      values.push(toJsonb(documents));
+      updates.push(`documents = $${values.length}`);
+    }
+    if (categoryMetadata !== undefined) {
+      values.push(toJsonb(categoryMetadata));
+      updates.push(`"categoryMetadata" = $${values.length}`);
+    }
+    if (b2bCategory !== undefined) {
+      values.push(b2bCategory || null);
+      updates.push(`"b2bCategory" = $${values.length}::"B2bProductCategory"`);
     }
 
     if (req.user?.role !== "superAdmin") {
       values.push("pending");
-      updates.push(`status = $${values.length}`);
+      updates.push(`status = $${values.length}::approvalstatus`);
     }
 
     if (Array.isArray(colorImagePairs)) {
       const productImages = extractProductImages(colorImagePairs);
       if (productImages.length > 0) {
-        values.push(productImages);
+        values.push(toJsonb(productImages));
         updates.push(`images = $${values.length}`);
       }
+    }
+
+    // Auto-compute availability status if quantity or reorderLevel changed and no explicit status provided
+    const qtyUpdated = updates.some((u) => u.startsWith("quantity ="));
+    const rLevelUpdated = updates.some((u) => u.startsWith('"reorderLevel" ='));
+    if (!availabilityStatus && (qtyUpdated || rLevelUpdated)) {
+      const currentQty = qtyUpdated
+        ? Number.parseInt(quantity, 10)
+        : existingRows[0].quantity;
+      const currentRLevel = rLevelUpdated
+        ? parseOptionalInt(reorderLevel, 0)
+        : existingRows[0].reorderLevel || 0;
+      values.push(computeAvailabilityStatus(currentQty, currentRLevel));
+      updates.push(`"availabilityStatus" = $${values.length}::"AvailabilityStatus"`);
+    } else if (availabilityStatus) {
+      values.push(availabilityStatus);
+      updates.push(`"availabilityStatus" = $${values.length}::"AvailabilityStatus"`);
     }
 
     values.push(new Date());
@@ -845,13 +1171,32 @@ const updateProduct = asyncHandler(async (req, res) => {
     await client.query("COMMIT");
 
     const updatedProduct = await getProductById(id);
+
+    // Notify admins and B2B buyers about the product change
+    const { emitToAdmins, emitToB2bBuyers } = require("../utils/socketEmitter");
+    emitToAdmins("product:updated", { action: "updated", product: updatedProduct });
+    if (updatedProduct.b2bCategory || updatedProduct.wholesalePrice) {
+      emitToB2bBuyers("product:updated", { action: "updated", product: updatedProduct });
+    }
+
     res.json(updatedProduct);
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Update Product Error:", error.message, error.stack);
+    const errorPayload = {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      query: error.query,
+      values: error.parameters,
+      stack: error.stack,
+    };
+    console.error("Update Product Error:", errorPayload);
     res.status(400).json({
-      message: "Product update protocol deviation",
-      error: error.message,
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
     });
   } finally {
     client.release();
@@ -913,43 +1258,26 @@ const updateProductStatus = asyncHandler(async (req, res) => {
   }
 
   try {
-    const { rows } = await db.query(
+    await db.query(
       `UPDATE "Product"
-       SET status = $2, "rejectionReason" = $3, "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING
-         id,
-         title,
-         slug,
-         description,
-         price,
-         "oldPrice" AS "oldPrice",
-         category,
-         subcategory,
-         brand,
-         quantity,
-         sold,
-         "postedByUserId" AS "postedByUserId",
-         "storeId" AS "storeId",
-         status,
-         "rejectionReason" AS "rejectionReason",
-         images,
-         strength,
-         "requiresPrescription" AS "requiresPrescription",
-         "prescriptionPlans" AS "prescriptionPlans",
-         tags,
-         discount,
-         "totalRating" AS "totalRating",
-         "createdAt" AS "createdAt",
-         "updatedAt" AS "updatedAt"`,
+       SET status = $2::approvalstatus, "rejectionReason" = $3, "updatedAt" = NOW()
+       WHERE id = $1`,
       [id, status, rejectionReason ?? null],
     );
 
-    if (!rows[0]) {
+    const updatedProduct = await getProductById(id);
+    if (!updatedProduct) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.json({ ...rows[0], _id: rows[0].id });
+    // Notify admins and B2B buyers about the status change
+    const { emitToAdmins, emitToB2bBuyers } = require("../utils/socketEmitter");
+    emitToAdmins("product:updated", { action: "status_changed", product: updatedProduct });
+    if (status === "approved" && (updatedProduct.b2bCategory || updatedProduct.wholesalePrice)) {
+      emitToB2bBuyers("product:updated", { action: "status_changed", product: updatedProduct });
+    }
+
+    res.json(updatedProduct);
   } catch (error) {
     throw new Error(error.message);
   }

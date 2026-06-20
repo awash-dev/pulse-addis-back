@@ -28,6 +28,34 @@ const initializePayment = async (req, res) => {
     });
   }
 
+  // Normalize Ethiopian phone number to the format Chapa expects: 09XXXXXXXX or 07XXXXXXXX (10 digits)
+  const normalizePhone = (raw) => {
+    if (!raw) return null;
+    let cleaned = String(raw).trim().replace(/[^\d+]/g, "");
+    // +251XXXXXXXXX  → 0XXXXXXXXX
+    if (cleaned.startsWith("+251")) cleaned = "0" + cleaned.slice(4);
+    // 251XXXXXXXXX (12 digits) → 0XXXXXXXXX
+    else if (cleaned.startsWith("251") && cleaned.length === 12) cleaned = "0" + cleaned.slice(3);
+    // 7XXXXXXXX or 9XXXXXXXX (9 digits, no leading 0) → 07/09XXXXXXXX
+    if (/^[79]\d{8}$/.test(cleaned)) cleaned = "0" + cleaned;
+    // Validate: must be exactly 10 digits starting with 07 or 09
+    if (/^0[79]\d{8}$/.test(cleaned)) return cleaned;
+    return null;
+  };
+
+  const normalizedPhone = normalizePhone(phone_number);
+  if (!normalizedPhone) {
+    return res.status(400).json({
+      success: false,
+      message: "Payment initialization failed",
+      error: {
+        message: "Invalid phone number. Please enter a valid Ethiopian phone number (e.g. 0912345678 or +251912345678).",
+        status: "failed",
+        data: null
+      }
+    });
+  }
+
   try {
     const chapaResponse = await axios.post("https://api.chapa.co/v1/transaction/initialize", {
       amount: chapaAmount,
@@ -38,14 +66,7 @@ const initializePayment = async (req, res) => {
       first_name: first_name || "Customer",
       last_name: last_name || ".",
       email,
-      phone_number: (() => {
-        if (!phone_number) return "";
-        let cleaned = String(phone_number).replace(/[^\d+]/g, "");
-        if (cleaned.startsWith("+251")) cleaned = "0" + cleaned.slice(4);
-        else if (cleaned.startsWith("251") && cleaned.length > 9) cleaned = "0" + cleaned.slice(3);
-        if (/^[79]\d{8}$/.test(cleaned)) cleaned = "0" + cleaned;
-        return cleaned;
-      })()
+      phone_number: normalizedPhone
     }, {
       headers: {
         Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
@@ -101,6 +122,11 @@ const initializePayment = async (req, res) => {
       });
 
       res.status(200).json({ payment_url: chapaResponse.data.data.checkout_url });
+
+      // Real-time order creation notification
+      const { emitToAdmins, emitToUser } = require("../utils/socketEmitter");
+      emitToAdmins("order:created", { order: newOrder });
+      emitToUser(userId, "order:created", { order: newOrder });
     } else {
       res.status(400).json({ message: "Payment initialization failed" });
     }
@@ -123,6 +149,16 @@ const verifyPayment = async (req, res) => {
         where: { txRef: tx_ref },
         data: { status: "active" }
       });
+
+      // Real-time payment verification notification
+      const { emitToAdmins, emitToUser } = require("../utils/socketEmitter");
+      emitToAdmins("payment:verified", { txRef: tx_ref, status: "active" });
+      emitToAdmins("dashboard:refresh", { source: "payment_verified" });
+
+      // Find the user(s) to notify
+      const orders = await db.order.findMany({ where: { txRef: tx_ref }, select: { userId: true } });
+      orders.forEach((o) => emitToUser(o.userId, "payment:verified", { txRef: tx_ref, status: "active" }));
+
       res.status(200).json({ message: "Payment verified successfully", order, success: true });
     } else {
       res.status(400).json({ message: "Payment verification failed", success: false });

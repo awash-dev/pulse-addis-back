@@ -6,7 +6,8 @@
   "scripts": {
     "start": "NODE_OPTIONS='--no-experimental-fetch' node index.js",
     "dev": "nodemon index.js",
-    "export-data": "node exportData.js"
+    "export-data": "node exportData.js",
+    "migrate": "node scripts/runMigration.js"
   },
   "dependencies": {
     "axios": "^1.7.2",

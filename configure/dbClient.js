@@ -73,6 +73,12 @@ const modelTableMap = {
   adhome: "\"AdHome\"",
   specialad: "\"SpecialAd\"",
   bannerad: "\"BannerAd\"",
+  // ── B2B additive tables (see db/migrations/20260101_b2b_core.sql) ──
+  requestforquotation: "\"RequestForQuotation\"",
+  rfq: "\"RequestForQuotation\"",
+  auditlog: "\"AuditLog\"",
+  address: "\"Address\"",
+  migration: "\"_Migration\"",
 };
 
 const relationConfig = {
@@ -143,7 +149,22 @@ const relationConfig = {
   deliveryassignment: {
     user: { type: "manyToOne", target: "User", fk: "userId" },
     order: { type: "manyToOne", target: "Order", fk: "orderId" }
-  }
+  },
+  // ── B2B additive relations ──
+  requestforquotation: {
+    customer: { type: "manyToOne", target: "User", fk: "customerId" },
+    respondedBy: { type: "manyToOne", target: "User", fk: "respondedById" },
+  },
+  rfq: {
+    customer: { type: "manyToOne", target: "User", fk: "customerId" },
+    respondedBy: { type: "manyToOne", target: "User", fk: "respondedById" },
+  },
+  auditlog: {
+    performedBy: { type: "manyToOne", target: "User", fk: "performedById" },
+  },
+  address: {
+    user: { type: "manyToOne", target: "User", fk: "userId" },
+  },
 };
 
 const quoteIdentifier = (identifier) => `\"${identifier.replace(/\"/g, "\\\"")}\"`;
@@ -220,6 +241,31 @@ const buildWhere = (modelName, where, params = [], prefix) => {
           case "contains":
             clauses.push(`${quoteColumn(key)} ILIKE $${params.length + 1}`);
             params.push(`%${val}%`);
+            break;
+          case "not":
+            if (val === null) {
+              clauses.push(`${quoteColumn(key)} IS NOT NULL`);
+            } else {
+              clauses.push(`${quoteColumn(key)} != $${params.length + 1}`);
+              params.push(val);
+            }
+            break;
+          case "notIn":
+            if (Array.isArray(val) && val.length > 0) {
+              const placeholders = val.map((_, idx) => `$${params.length + idx + 1}`).join(", ");
+              clauses.push(`${quoteColumn(key)} NOT IN (${placeholders})`);
+              params.push(...val);
+            } else {
+              clauses.push("TRUE");
+            }
+            break;
+          case "startsWith":
+            clauses.push(`${quoteColumn(key)} ILIKE $${params.length + 1}`);
+            params.push(`${val}%`);
+            break;
+          case "endsWith":
+            clauses.push(`${quoteColumn(key)} ILIKE $${params.length + 1}`);
+            params.push(`%${val}`);
             break;
           case "in":
             if (Array.isArray(val) && val.length > 0) {
